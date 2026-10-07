@@ -15,6 +15,7 @@ const DEFAULT_TIERS = Object.freeze([
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
   recentKillLimit: 10,
+  payoutDelayMs: 20 * 60 * 1000,
   notifications: {enabled: true},
   diagnostics: {enabled: false},
   progression: {
@@ -98,6 +99,7 @@ function normalizeConfig(value = {}) {
   return Object.freeze({
     enabled: source.enabled !== false,
     recentKillLimit: integer(source.recentKillLimit, DEFAULT_CONFIG.recentKillLimit, 1, 100),
+    payoutDelayMs: integer(source.payoutDelayMs, DEFAULT_CONFIG.payoutDelayMs, 1000, 86400000),
     notifications: Object.freeze({enabled: notifications.enabled !== false}),
     diagnostics: Object.freeze({enabled: diagnostics.enabled === true}),
     progression: Object.freeze({

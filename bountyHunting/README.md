@@ -34,6 +34,7 @@ The configuration controls:
 - `diagnostics.enabled` for temporary hook tracing in the server log
 - the 50-level XP curve
 - the number of recent kills shown in the Mods window
+- `payoutDelayMs`, the fallback reward-batch delay when EveJS does not provide a native payout time (default: 1,200,000 ms / 20 minutes)
 - reward notifications
 - the bounty-value thresholds and rewards for Low, Standard, Elite, and Boss NPCs
 
@@ -61,11 +62,13 @@ Open Bounty Hunting from the in-game Mods window. The scrollable window shows:
 
 Reward messages are sent as system messages when a reward is settled. Set `notifications.enabled` to `false` to disable them.
 
+Kills, XP, and lifetime statistics are recorded as soon as the final blow is confirmed. ISK, PLEX, and skill-point rewards are grouped per character and settled as one combined reward at the same native EveJS bounty payout time. If no native payout time is available, the mod uses `payoutDelayMs`. The window shows any pending batch before it is paid.
+
 For troubleshooting, set `diagnostics.enabled` to `true` and restart the game server. The server log will show whether native bounty, drone destruction, or killmail hooks observed a kill and whether duplicate hook calls were suppressed. Disable diagnostics after testing.
 
 ## Reward safety
 
-ISK, PLEX, and skill-point rewards use separate idempotency receipts. If one part of a reward cannot be paid, the remaining work stays pending and is retried by the service. Native combat destruction and native bounty settlement are never blocked by this mod.
+ISK, PLEX, and skill-point rewards use separate batch idempotency receipts. If one part of a reward cannot be paid, the remaining work stays pending and is retried by the service without repeating successful portions. Native combat destruction and native bounty settlement are never blocked by this mod.
 
 ## License and maintenance
 

@@ -15,6 +15,7 @@ const {
   awardKill,
   buildSnapshot,
   normalizeCharacter,
+  normalizeRewardBatch,
 } = require("./bountyProgression");
 
 const MOD_ID = "bountyHunting";
@@ -134,16 +135,21 @@ function ensureCharacter(state, characterID, recentLimit) {
   return state.characters[key];
 }
 
-function pendingKillCount(state) {
+function pendingBatchCount(state) {
   let pending = 0;
   for (const character of Object.values(state.characters || {})) {
-    for (const kill of Object.values(character && character.kills || {})) {
-      if (kill && kill.status !== "claimed") {
+    for (const batch of Object.values(character && character.pendingRewardBatches || {})) {
+      if (batch && batch.status !== "settled") {
         pending += 1;
       }
     }
   }
   return pending;
+}
+
+function payoutTimeForMs(value) {
+  const numeric = Math.max(0, Math.floor(finite(value, 0)));
+  return numeric > 0 ? String(numeric) : "";
 }
 
 class BountyHuntingService extends BaseService {
@@ -160,6 +166,7 @@ class BountyHuntingService extends BaseService {
     this._dependencies = options.dependencies || null;
     this._queues = new Map();
     this._retryTimer = null;
+    this._migratePendingBatches();
 
     if (this._config.enabled && options.autoStart !== false) {
       this._start();
@@ -196,7 +203,7 @@ class BountyHuntingService extends BaseService {
       enabled: this._config.enabled,
       diagnosticsEnabled: this._config.diagnostics.enabled,
       characterCount: Object.keys(this._state.characters || {}).length,
-      pendingRewards: pendingKillCount(this._state),
+      pendingRewards: pendingBatchCount(this._state),
     };
   }
 
@@ -277,6 +284,101 @@ class BountyHuntingService extends BaseService {
     return next;
   }
 
+  _resolvePayoutSchedule({payoutAtMs = 0, payoutTime = "", whenMs = Date.now()} = {}) {
+    const nowMs = Math.max(0, Math.floor(finite(whenMs, Date.now())));
+    const nativePayoutAtMs = Math.max(0, Math.floor(finite(payoutAtMs, 0)));
+    if (nativePayoutAtMs > 0) {
+      return {
+        payoutAtMs: nativePayoutAtMs,
+        payoutTime: String(payoutTime || payoutTimeForMs(nativePayoutAtMs)),
+      };
+    }
+    const delayMs = Math.max(1000, Math.floor(finite(this._config.payoutDelayMs, 20 * 60 * 1000)));
+    const payoutAt = Math.ceil((nowMs + delayMs) / delayMs) * delayMs;
+    return {
+      payoutAtMs: payoutAt,
+      payoutTime: payoutTimeForMs(payoutAt),
+    };
+  }
+
+  _batchForCharacter(character, batchKey, schedule, createdAtMs) {
+    if (!character.pendingRewardBatches || typeof character.pendingRewardBatches !== "object") {
+      character.pendingRewardBatches = {};
+    }
+    if (!character.pendingRewardBatches[batchKey]) {
+      character.pendingRewardBatches[batchKey] = normalizeRewardBatch({
+        batchKey,
+        payoutAtMs: schedule.payoutAtMs,
+        payoutTime: schedule.payoutTime,
+        createdAtMs,
+      }, batchKey);
+    }
+    return character.pendingRewardBatches[batchKey];
+  }
+
+  _addKillToBatch(character, batch, kill) {
+    if (batch.killKeys.includes(kill.eventKey)) {
+      return false;
+    }
+    batch.killKeys.push(kill.eventKey);
+    batch.killCount = batch.killKeys.length;
+    batch.isk += Math.max(0, finite(kill.reward && kill.reward.isk, 0));
+    batch.plex += Math.max(0, Math.floor(finite(kill.reward && kill.reward.plex, 0)));
+    batch.skillPoints += Math.max(0, Math.floor(finite(kill.reward && kill.reward.skillPoints, 0)));
+    return true;
+  }
+
+  _migratePendingBatches() {
+    let changed = false;
+    const delayMs = Math.max(1000, Math.floor(finite(this._config.payoutDelayMs, 20 * 60 * 1000)));
+    for (const character of Object.values(this._state.characters || {})) {
+      if (!character || !character.kills || !character.pendingRewardBatches) {
+        continue;
+      }
+      for (const kill of Object.values(character.kills)) {
+        if (!kill || !kill.eventKey || kill.status === "settled") {
+          continue;
+        }
+        const fullyPaid = kill.iskPaid === true && kill.plexPaid === true && kill.skillPointsPaid === true;
+        if (fullyPaid && kill.progressionApplied === true) {
+          continue;
+        }
+        const baseTime = Math.max(0, Math.floor(finite(kill.killedAtMs, Date.now())));
+        const payoutAtMs = Math.max(
+          Date.now(),
+          Math.ceil((baseTime + delayMs) / delayMs) * delayMs,
+        );
+        const batchKey = `legacy:${payoutAtMs}`;
+        const batch = this._batchForCharacter(
+          character,
+          batchKey,
+          {payoutAtMs, payoutTime: payoutTimeForMs(payoutAtMs)},
+          baseTime,
+        );
+        if (!batch.killKeys.includes(kill.eventKey)) {
+          batch.killKeys.push(kill.eventKey);
+          batch.killCount = batch.killKeys.length;
+          if (kill.iskPaid !== true) {
+            batch.isk += Math.max(0, finite(kill.reward && kill.reward.isk, 0));
+          }
+          if (kill.plexPaid !== true) {
+            batch.plex += Math.max(0, Math.floor(finite(kill.reward && kill.reward.plex, 0)));
+          }
+          if (kill.skillPointsPaid !== true) {
+            batch.skillPoints += Math.max(0, Math.floor(finite(kill.reward && kill.reward.skillPoints, 0)));
+          }
+          changed = true;
+        }
+        batch.iskPaid = batch.isk <= 0;
+        batch.plexPaid = batch.plex <= 0;
+        batch.skillPointsPaid = batch.skillPoints <= 0;
+      }
+    }
+    if (changed) {
+      this._saveState();
+    }
+  }
+
   _resolveBountyISK(victimEntity, systemID) {
     try {
       const bountyRuntime = this._getDependencies().bountyRuntime;
@@ -339,6 +441,8 @@ class BountyHuntingService extends BaseService {
     nativeBountyEligible = false,
     killID = 0,
     eventKey = "",
+    payoutAtMs = 0,
+    payoutTime = "",
     whenMs = Date.now(),
   } = {}) {
     if (
@@ -363,31 +467,63 @@ class BountyHuntingService extends BaseService {
           : `destruction:${systemIDFromEntity(targetEntity)}:${positive(targetEntity.itemID, 0)}:${Math.floor(finite(whenMs, Date.now()))}:${characterID}`),
     );
     const character = ensureCharacter(this._state, characterID, this._config.recentKillLimit);
-    if (!character.kills[normalizedEventKey]) {
-      character.kills[normalizedEventKey] = this._buildKillRecord({
-        eventKey: normalizedEventKey,
-        killID: normalizedKillID,
-        characterID,
-        victimEntity: targetEntity,
-        finalAttacker,
-        whenMs,
-      });
-      this._saveState();
+    if (character.kills[normalizedEventKey]) {
+      return Promise.resolve({success: true, duplicate: true, pendingPayout: true});
     }
-    return this._queueForCharacter(characterID, () => this._settleKill(characterID, normalizedEventKey));
+
+    const kill = this._buildKillRecord({
+      eventKey: normalizedEventKey,
+      killID: normalizedKillID,
+      characterID,
+      victimEntity: targetEntity,
+      finalAttacker,
+      whenMs,
+    });
+    character.kills[normalizedEventKey] = kill;
+    const progression = awardKill(
+      character,
+      kill,
+      this._config.progression,
+      Math.max(0, Math.floor(finite(whenMs, Date.now()))),
+      this._config.recentKillLimit,
+    );
+    if (!progression.success) {
+      return Promise.resolve(progression);
+    }
+    const schedule = this._resolvePayoutSchedule({payoutAtMs, payoutTime, whenMs});
+    const batchKey = `payout:${schedule.payoutAtMs}`;
+    const batch = this._batchForCharacter(
+      character,
+      batchKey,
+      schedule,
+      Math.max(0, Math.floor(finite(whenMs, Date.now()))),
+    );
+    this._addKillToBatch(character, batch, progression.kill);
+    this._saveState();
+
+    const nowMs = Date.now();
+    if (batch.payoutAtMs > nowMs) {
+      return Promise.resolve({
+        success: true,
+        recorded: true,
+        pendingPayout: true,
+        payoutAtMs: batch.payoutAtMs,
+        kill: progression.kill,
+      });
+    }
+    return this._queueForCharacter(characterID, () => this._settleBatch(characterID, batchKey));
   }
 
-  async _payISK(characterID, kill) {
-    if (kill.iskPaid === true) {
+  async _payBatchISK(characterID, batch) {
+    if (batch.iskPaid === true) {
       return true;
     }
-    const amount = Math.round(finite(kill.reward && kill.reward.isk, 0) * 100) / 100;
+    const amount = Math.round(finite(batch.isk, 0) * 100) / 100;
     if (amount <= 0) {
-      kill.iskPaid = true;
-      this._saveState();
+      batch.iskPaid = true;
       return true;
     }
-    const idempotencyKey = `${MOD_ID}:${characterID}:${kill.eventKey}:isk`;
+    const idempotencyKey = `${MOD_ID}:${characterID}:${batch.batchKey}:isk`;
     const walletState = this._getDependencies().walletState;
     let result;
     try {
@@ -396,11 +532,11 @@ class BountyHuntingService extends BaseService {
         amount,
         {
           idempotencyKey,
-          description: `Bounty hunting reward: ${kill.npcName}`,
+          description: `Bounty hunting reward batch (${batch.killCount} NPC kills)`,
           entryTypeID: walletState.JOURNAL_ENTRY_TYPE.AGENT_MISSION_REWARD,
           ownerID1: characterID,
-          ownerID2: kill.systemID || characterID,
-          referenceID: kill.npcTypeID || kill.systemID || characterID,
+          ownerID2: characterID,
+          referenceID: characterID,
         },
         {commandID: idempotencyKey, source: MOD_ID},
       );
@@ -408,25 +544,23 @@ class BountyHuntingService extends BaseService {
       result = {success: false, errorMsg: error.message};
     }
     if (!result || result.success !== true) {
-      log.warn(`[${MOD_ID}] ISK reward failed character=${characterID} event=${kill.eventKey}`);
+      log.warn(`[${MOD_ID}] ISK reward batch failed character=${characterID} batch=${batch.batchKey}`);
       return false;
     }
-    kill.iskPaid = true;
-    this._saveState();
+    batch.iskPaid = true;
     return true;
   }
 
-  async _payPLEX(characterID, kill) {
-    if (kill.plexPaid === true) {
+  async _payBatchPLEX(characterID, batch) {
+    if (batch.plexPaid === true) {
       return true;
     }
-    const amount = Math.max(0, Math.floor(finite(kill.reward && kill.reward.plex, 0)));
+    const amount = Math.max(0, Math.floor(finite(batch.plex, 0)));
     if (amount <= 0) {
-      kill.plexPaid = true;
-      this._saveState();
+      batch.plexPaid = true;
       return true;
     }
-    const idempotencyKey = `${MOD_ID}:${characterID}:${kill.eventKey}:plex`;
+    const idempotencyKey = `${MOD_ID}:${characterID}:${batch.batchKey}:plex`;
     const walletState = this._getDependencies().walletState;
     let result;
     try {
@@ -437,11 +571,11 @@ class BountyHuntingService extends BaseService {
           idempotencyKey,
           categoryMessageID: PLEX_LOG_CATEGORY.REWARD,
           summaryMessageID: PLEX_LOG_CATEGORY.REWARD,
-          summaryText: `Bounty hunting reward: ${kill.npcName}`,
-          description: `Bounty hunting reward: ${kill.npcName}`,
+          summaryText: `Bounty hunting reward batch (${batch.killCount} NPC kills)`,
+          description: `Bounty hunting reward batch (${batch.killCount} NPC kills)`,
           ownerID1: characterID,
-          ownerID2: kill.systemID || characterID,
-          referenceID: kill.npcTypeID || kill.systemID || characterID,
+          ownerID2: characterID,
+          referenceID: characterID,
         },
         {commandID: idempotencyKey, source: MOD_ID},
       );
@@ -449,22 +583,20 @@ class BountyHuntingService extends BaseService {
       result = {success: false, errorMsg: error.message};
     }
     if (!result || result.success !== true) {
-      log.warn(`[${MOD_ID}] PLEX reward failed character=${characterID} event=${kill.eventKey}`);
+      log.warn(`[${MOD_ID}] PLEX reward batch failed character=${characterID} batch=${batch.batchKey}`);
       return false;
     }
-    kill.plexPaid = true;
-    this._saveState();
+    batch.plexPaid = true;
     return true;
   }
 
-  async _paySkillPoints(characterID, kill) {
-    if (kill.skillPointsPaid === true) {
+  async _payBatchSkillPoints(characterID, batch) {
+    if (batch.skillPointsPaid === true) {
       return true;
     }
-    const amount = Math.max(0, Math.floor(finite(kill.reward && kill.reward.skillPoints, 0)));
+    const amount = Math.max(0, Math.floor(finite(batch.skillPoints, 0)));
     if (amount <= 0) {
-      kill.skillPointsPaid = true;
-      this._saveState();
+      batch.skillPointsPaid = true;
       return true;
     }
     const dependencies = this._getDependencies();
@@ -472,7 +604,7 @@ class BountyHuntingService extends BaseService {
     if (!characterState || typeof characterState.updateCharacterRecord !== "function") {
       return false;
     }
-    const idempotencyKey = `${MOD_ID}:${characterID}:${kill.eventKey}:skill-points`;
+    const idempotencyKey = `${MOD_ID}:${characterID}:${batch.batchKey}:skill-points`;
     let duplicate = false;
     let freeSkillPoints = 0;
     let result;
@@ -517,8 +649,7 @@ class BountyHuntingService extends BaseService {
         log.debug(`[${MOD_ID}] skill-point notification failed: ${error.message}`);
       }
     }
-    kill.skillPointsPaid = true;
-    this._saveState();
+    batch.skillPointsPaid = true;
     return true;
   }
 
@@ -529,56 +660,81 @@ class BountyHuntingService extends BaseService {
       : null;
   }
 
-  _sendSummary(characterID, result) {
-    if (!this._config.notifications.enabled || !result || !result.kill) {
+  _sendBatchSummary(characterID, character, batch) {
+    if (!this._config.notifications.enabled || !batch || batch.notificationSent === true) {
       return;
     }
     const session = this._sessionForCharacter(characterID);
-    const kill = result.kill;
-    if (!session || kill.notificationSent === true) {
+    if (!session) {
       return;
     }
     try {
       this._getDependencies().chatHub.sendSystemMessage(
         session,
-        `[Bounty Hunting] ${kill.npcName}: +${kill.reward.isk.toLocaleString("en-US")} ISK, ` +
-          `+${kill.reward.skillPoints.toLocaleString("en-US")} SP, +${kill.reward.plex} PLEX, ` +
-          `+${kill.reward.xp} XP. Bounty Hunter Level ${result.levelAfter}.`,
+        `[Bounty Hunting] ${batch.killCount} NPC kills: ` +
+          `+${batch.isk.toLocaleString("en-US")} ISK, ` +
+          `+${batch.skillPoints.toLocaleString("en-US")} SP, ` +
+          `+${batch.plex} PLEX. Bounty Hunter Level ${character.level}.`,
       );
-      kill.notificationSent = true;
+      batch.notificationSent = true;
       this._saveState();
     } catch (error) {
       log.debug(`[${MOD_ID}] reward notification failed: ${error.message}`);
     }
   }
 
-  async _settleKill(characterID, eventKey) {
+  async _settleBatch(characterID, batchKey) {
     const character = ensureCharacter(this._state, characterID, this._config.recentKillLimit);
-    const kill = character.kills[eventKey];
-    if (!kill || kill.status === "claimed") {
+    const batch = character.pendingRewardBatches && character.pendingRewardBatches[batchKey];
+    if (!batch || batch.status === "settled") {
       return {success: true, duplicate: true};
     }
-    if (!await this._payISK(characterID, kill)) return {success: false, pending: true};
-    if (!await this._payPLEX(characterID, kill)) return {success: false, pending: true};
-    if (!await this._paySkillPoints(characterID, kill)) return {success: false, pending: true};
-    const result = awardKill(
-      character,
-      kill,
-      this._config.progression,
-      Date.now(),
-      this._config.recentKillLimit,
-    );
-    if (!result.success) {
-      return result;
+    if (batch.payoutAtMs > Date.now()) {
+      return {success: true, pending: true, payoutAtMs: batch.payoutAtMs};
     }
+    if (!await this._payBatchISK(characterID, batch)) {
+      this._saveState();
+      return {success: false, pending: true};
+    }
+    if (!await this._payBatchPLEX(characterID, batch)) {
+      this._saveState();
+      return {success: false, pending: true};
+    }
+    if (!await this._payBatchSkillPoints(characterID, batch)) {
+      this._saveState();
+      return {success: false, pending: true};
+    }
+
+    for (const eventKey of batch.killKeys) {
+      const kill = character.kills[eventKey];
+      if (!kill) {
+        continue;
+      }
+      kill.iskPaid = true;
+      kill.plexPaid = true;
+      kill.skillPointsPaid = true;
+      if (kill.progressionApplied !== true) {
+        awardKill(
+          character,
+          kill,
+          this._config.progression,
+          Date.now(),
+          this._config.recentKillLimit,
+        );
+      }
+      if (character.kills[eventKey]) {
+        character.kills[eventKey].status = "settled";
+      }
+    }
+    batch.status = "settled";
+    batch.settledAtMs = Date.now();
     this._saveState();
-    this._sendSummary(characterID, result);
+    this._sendBatchSummary(characterID, character, batch);
     log.info(
-      `[${MOD_ID}] NPC kill rewarded character=${characterID} event=${eventKey} ` +
-        `tier=${kill.tier} isk=${kill.reward.isk} sp=${kill.reward.skillPoints} ` +
-        `plex=${kill.reward.plex} xp=${kill.reward.xp}`,
+      `[${MOD_ID}] NPC reward batch settled character=${characterID} batch=${batchKey} ` +
+        `kills=${batch.killCount} isk=${batch.isk} sp=${batch.skillPoints} plex=${batch.plex}`,
     );
-    return result;
+    return {success: true, settled: true, batch};
   }
 
   async _retryPendingRewards() {
@@ -586,10 +742,12 @@ class BountyHuntingService extends BaseService {
       return;
     }
     for (const [characterID, character] of Object.entries(this._state.characters || {})) {
-      for (const eventKey of Object.keys(character && character.kills || {})) {
-        const kill = character.kills[eventKey];
-        if (kill && kill.status !== "claimed") {
-          await this._queueForCharacter(Number(characterID), () => this._settleKill(Number(characterID), eventKey));
+      for (const batchKey of Object.keys(character && character.pendingRewardBatches || {})) {
+        const batch = character.pendingRewardBatches[batchKey];
+        if (batch && batch.status !== "settled" && batch.payoutAtMs <= Date.now()) {
+          await this._queueForCharacter(Number(characterID), () => (
+            this._settleBatch(Number(characterID), batchKey)
+          ));
         }
       }
     }

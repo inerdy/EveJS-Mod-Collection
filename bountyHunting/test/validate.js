@@ -37,6 +37,7 @@ assert.equal(config.enabled, true);
 assert.equal(config.progression.maxLevel, 50);
 assert.equal(config.progression.xpToNextLevelBase, 1000);
 assert.equal(config.progression.xpToNextLevelPerLevel, 250);
+assert.equal(config.payoutDelayMs, 1200000);
 assert.equal(config.tiers.length, 4);
 assert.equal(config.tiers[0].isk, 25000);
 assert.equal(config.tiers[3].plexMaximum, 2);
@@ -52,7 +53,7 @@ const migrated = normalizeState({
     "43": {totalXP: 0},
   },
 });
-assert.equal(migrated.schemaVersion, 1);
+assert.equal(migrated.schemaVersion, 2);
 assert.equal(migrated.characters["42"].totalKills, 1);
 assert.equal(migrated.characters["43"].totalXP, 0);
 assert.deepEqual(normalizeState({}).characters, {});
@@ -170,34 +171,80 @@ async function validateAsync() {
     name: "Test Rat",
     bounty: 25000,
   };
+  const futurePayoutAtMs = Date.now() + 60000;
   const first = await service.recordNpcKill({
     targetEntity: npc,
     finalAttacker: {characterID: 42, typeID: 587},
     killID: 1001,
     whenMs: 1000,
+    payoutAtMs: futurePayoutAtMs,
   });
-  assert.equal(first.success, false);
-  assert.equal(first.pending, true);
-  assert.equal(savedState.characters["42"].kills["killmail:1001"].iskPaid, true);
-  assert.equal(savedState.characters["42"].kills["killmail:1001"].plexPaid, false);
+  assert.equal(first.success, true);
+  assert.equal(first.recorded, true);
+  assert.equal(first.pendingPayout, true);
+  assert.equal(savedState.characters["42"].kills["killmail:1001"].status, "recorded");
+  assert.equal(walletCalls.length, 0);
 
-  const retry = await service.recordNpcKill({
-    targetEntity: npc,
+  const second = await service.recordNpcKill({
+    targetEntity: {
+      ...npc,
+      itemID: 7004,
+      name: "Second Test Rat",
+    },
     finalAttacker: {characterID: 42, typeID: 587},
-    killID: 1001,
-    whenMs: 1000,
+    killID: 1002,
+    whenMs: 2000,
+    payoutAtMs: futurePayoutAtMs,
   });
+  assert.equal(second.success, true);
+  assert.equal(second.recorded, true);
+  assert.equal(savedState.characters["42"].totalKills, 2);
+  assert.equal(savedState.characters["42"].totalXP, 100);
+  assert.equal(savedState.characters["42"].totalISK, 150000);
+  assert.equal(savedState.characters["42"].totalSkillPoints, 5000);
+  assert.equal(savedState.characters["42"].totalPlex, 2);
+  const batchKey = `payout:${futurePayoutAtMs}`;
+  assert.equal(savedState.characters["42"].pendingRewardBatches[batchKey].killCount, 2);
+  assert.equal(savedState.characters["42"].pendingRewardBatches[batchKey].isk, 150000);
+  assert.equal(savedState.characters["42"].pendingRewardBatches[batchKey].plex, 2);
+  assert.equal(savedState.characters["42"].pendingRewardBatches[batchKey].skillPoints, 5000);
+  assert.equal(savedState.characters["42"].pendingRewardBatches[batchKey].status, "pending");
+  const pendingSnapshot = buildSnapshot(
+    savedState.characters["42"],
+    config.progression,
+    config.tiers,
+  );
+  assert.equal(pendingSnapshot.pendingReward.killCount, 2);
+  assert.equal(pendingSnapshot.pendingReward.isk, 150000);
+
+  service._state.characters["42"].pendingRewardBatches[batchKey].payoutAtMs = 1;
+  const partialSettlement = await service._settleBatch(42, batchKey);
+  assert.equal(partialSettlement.success, false);
+  assert.equal(partialSettlement.pending, true);
+  assert.equal(walletCalls.filter((call) => call.kind === "isk").length, 1);
+  assert.equal(walletCalls.filter((call) => call.kind === "plex").length, 1);
+  assert.equal(skillNotifications.length, 0);
+  const partialSnapshot = buildSnapshot(
+    savedState.characters["42"],
+    config.progression,
+    config.tiers,
+  );
+  assert.equal(partialSnapshot.pendingReward.isk, 0);
+  assert.equal(partialSnapshot.pendingReward.plex, 2);
+  assert.equal(partialSnapshot.pendingReward.skillPoints, 5000);
+
+  const retry = await service._settleBatch(42, batchKey);
   assert.equal(retry.success, true);
-  assert.equal(savedState.characters["42"].totalKills, 1);
-  assert.equal(savedState.characters["42"].totalXP, 50);
-  assert.equal(savedState.characters["42"].totalISK, 75000);
-  assert.equal(savedState.characters["42"].totalSkillPoints, 2500);
-  assert.equal(savedState.characters["42"].totalPlex, 1);
-  assert.equal(characterRecords.get(42).freeSkillPoints, 2500);
+  assert.equal(retry.settled, true);
+  assert.equal(savedState.characters["42"].pendingRewardBatches[batchKey].status, "settled");
+  assert.equal(savedState.characters["42"].kills["killmail:1001"].status, "settled");
+  assert.equal(savedState.characters["42"].kills["killmail:1002"].status, "settled");
+  assert.equal(characterRecords.get(42).freeSkillPoints, 5000);
   assert.equal(walletCalls.filter((call) => call.kind === "isk").length, 1);
   assert.equal(walletCalls.filter((call) => call.kind === "plex").length, 2);
   assert.equal(skillNotifications.length, 1);
   assert.equal(notifications.length, 1);
+  assert.match(notifications[0], /2 NPC kills/u);
 
   const duplicate = await service.recordNpcKill({
     targetEntity: npc,
@@ -205,7 +252,7 @@ async function validateAsync() {
     killID: 1001,
   });
   assert.equal(duplicate.duplicate, true);
-  assert.equal(savedState.characters["42"].totalKills, 1);
+  assert.equal(savedState.characters["42"].totalKills, 2);
   assert.equal(walletCalls.filter((call) => call.kind === "isk").length, 1);
 
   const droneResult = await service.recordNpcKill({
@@ -220,6 +267,7 @@ async function validateAsync() {
     },
     finalAttacker: {characterID: 43},
     whenMs: 2000,
+    payoutAtMs: futurePayoutAtMs + 60000,
   });
   assert.equal(droneResult.success, true);
   assert.equal(savedState.characters["43"].totalKills, 1);
@@ -237,6 +285,7 @@ async function validateAsync() {
     characterID: 44,
     nativeBountyEligible: true,
     eventKey: "npc:30000001:7003",
+    payoutAtMs: futurePayoutAtMs + 60000,
   });
   assert.equal(nativeBountyResult.success, true);
   assert.equal(savedState.characters["44"].totalKills, 1);
@@ -247,7 +296,7 @@ async function validateAsync() {
     killID: 2001,
   });
   assert.equal(playerResult.skipped, true);
-  assert.equal(savedState.characters["42"].totalKills, 1);
+  assert.equal(savedState.characters["42"].totalKills, 2);
 
   const wireState = service.Handle_GetBountyProgress({}, {characterID: 42});
   assert.equal(wireState.type, "dict");

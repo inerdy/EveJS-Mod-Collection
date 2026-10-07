@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {normalizeCharacter} = require("./bountyProgression");
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));

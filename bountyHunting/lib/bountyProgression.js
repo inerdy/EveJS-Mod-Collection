@@ -96,6 +96,28 @@ function normalizeKill(raw = {}) {
   };
 }
 
+function normalizeRewardBatch(raw = {}, fallbackKey = "") {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const sourceKeys = Array.isArray(source.killKeys) ? source.killKeys : [];
+  return {
+    batchKey: String(source.batchKey || fallbackKey || ""),
+    payoutAtMs: Math.max(0, Math.floor(nonNegative(source.payoutAtMs, 0))),
+    payoutTime: String(source.payoutTime || ""),
+    isk: Math.round(nonNegative(source.isk, 0) * 100) / 100,
+    plex: Math.floor(nonNegative(source.plex, 0)),
+    skillPoints: Math.floor(nonNegative(source.skillPoints, 0)),
+    killCount: Math.max(0, Math.floor(nonNegative(source.killCount, sourceKeys.length))),
+    killKeys: [...new Set(sourceKeys.map((value) => String(value || "")).filter(Boolean))],
+    iskPaid: source.iskPaid === true,
+    plexPaid: source.plexPaid === true,
+    skillPointsPaid: source.skillPointsPaid === true,
+    notificationSent: source.notificationSent === true,
+    status: String(source.status || "pending"),
+    createdAtMs: Math.max(0, Math.floor(nonNegative(source.createdAtMs, 0))),
+    settledAtMs: Math.max(0, Math.floor(nonNegative(source.settledAtMs, 0))),
+  };
+}
+
 function normalizeCharacter(raw = {}, recentLimit = 10) {
   const source = raw && typeof raw === "object" ? raw : {};
   const recentKills = Array.isArray(source.recentKills)
@@ -116,6 +138,16 @@ function normalizeCharacter(raw = {}, recentLimit = 10) {
   for (const [tier, value] of Object.entries(sourceTierCounts)) {
     killsByTier[String(tier)] = Math.max(0, Math.floor(nonNegative(value, 0)));
   }
+  const sourceBatches = source.pendingRewardBatches && typeof source.pendingRewardBatches === "object"
+    ? source.pendingRewardBatches
+    : {};
+  const pendingRewardBatches = {};
+  for (const [key, value] of Object.entries(sourceBatches)) {
+    const batch = normalizeRewardBatch(value, key);
+    if (batch.batchKey) {
+      pendingRewardBatches[batch.batchKey] = batch;
+    }
+  }
   return {
     totalXP: Math.floor(nonNegative(source.totalXP, 0)),
     level: levelForXP(source.totalXP, {}),
@@ -127,6 +159,7 @@ function normalizeCharacter(raw = {}, recentLimit = 10) {
     lastKill: recentKills[0] || null,
     recentKills,
     kills,
+    pendingRewardBatches,
   };
 }
 
@@ -162,7 +195,7 @@ function awardKill(character, kill, config = {}, nowMs = Date.now(), recentLimit
   normalized.levelBefore = levelBefore;
   normalized.levelAfter = levelAfter;
   normalized.progressionApplied = true;
-  normalized.status = "claimed";
+  normalized.status = "recorded";
   character.kills[normalized.eventKey] = normalized;
   character.recentKills = [normalized, ...(character.recentKills || [])]
     .filter((entry, index, entries) => (
@@ -192,6 +225,18 @@ function buildSnapshot(character, config = {}, tiers = [], recentLimit = 10) {
   const progressPercent = source.level >= settings.maxLevel || levelTargetXP <= levelStartXP
     ? 100
     : Math.min(100, Math.max(0, (xpIntoLevel / (levelTargetXP - levelStartXP)) * 100));
+  const pendingBatches = Object.values(source.pendingRewardBatches || {})
+    .filter((batch) => batch && batch.status !== "settled");
+  const pendingReward = pendingBatches.reduce((summary, batch) => ({
+    isk: summary.isk + (batch.iskPaid ? 0 : batch.isk),
+    plex: summary.plex + (batch.plexPaid ? 0 : batch.plex),
+    skillPoints: summary.skillPoints + (batch.skillPointsPaid ? 0 : batch.skillPoints),
+    killCount: summary.killCount + batch.killCount,
+  }), {isk: 0, plex: 0, skillPoints: 0, killCount: 0});
+  const nextPayoutAtMs = pendingBatches.reduce((minimum, batch) => {
+    const payoutAtMs = Math.max(0, Math.floor(nonNegative(batch.payoutAtMs, 0)));
+    return payoutAtMs > 0 && payoutAtMs < minimum ? payoutAtMs : minimum;
+  }, Number.POSITIVE_INFINITY);
   return {
     level: source.level,
     maxLevel: settings.maxLevel,
@@ -206,6 +251,10 @@ function buildSnapshot(character, config = {}, tiers = [], recentLimit = 10) {
     totalPlex: source.totalPlex,
     lastKill: source.lastKill,
     recentKills: source.recentKills,
+    pendingReward: {
+      ...pendingReward,
+      nextPayoutAtMs: Number.isFinite(nextPayoutAtMs) ? nextPayoutAtMs : 0,
+    },
     rewardTiers: Array.isArray(tiers) ? tiers : [],
   };
 }
@@ -219,6 +268,7 @@ module.exports = {
   levelForXP,
   normalizeCharacter,
   normalizeKill,
+  normalizeRewardBatch,
   progressionConfig,
   totalXPForLevel,
   xpToNextLevel,

@@ -88,7 +88,7 @@ class BountyHuntingWindow(Window):
         self._stats = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,
-            height=106,
+            height=132,
             padLeft=10,
             padTop=4,
             text='',
@@ -152,6 +152,20 @@ class BountyHuntingWindow(Window):
         total_isk = state.get('totalISK', 0) or 0
         total_sp = _integer(state.get('totalSkillPoints', 0) or 0)
         total_plex = _integer(state.get('totalPlex', 0) or 0)
+        pending = state.get('pendingReward') or {}
+        pending_kills = _integer(pending.get('killCount', 0) or 0)
+        pending_isk = pending.get('isk', 0) or 0
+        pending_sp = _integer(pending.get('skillPoints', 0) or 0)
+        pending_plex = _integer(pending.get('plex', 0) or 0)
+        pending_text = (
+            'Pending payout: %s kills | %s ISK | %s SP | %s PLEX' % (
+                pending_kills,
+                _format_isk(pending_isk),
+                '{:,}'.format(pending_sp),
+                pending_plex,
+            )
+            if pending_kills > 0 else 'Pending payout: none'
+        )
 
         if level >= max_level:
             progress_text = 'MAX LEVEL - %s total XP' % total_xp
@@ -197,6 +211,7 @@ class BountyHuntingWindow(Window):
                 _color(_COLOR_REWARD, '{:,}'.format(total_sp)),
                 _color(_COLOR_LABEL, 'PLEX earned:'),
                 _color(_COLOR_REWARD, total_plex),
+                _color(_COLOR_LABEL, pending_text),
             )
         )
 

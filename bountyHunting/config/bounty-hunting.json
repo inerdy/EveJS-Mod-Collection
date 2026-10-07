@@ -1,6 +1,7 @@
 {
   "enabled": true,
   "recentKillLimit": 10,
+  "payoutDelayMs": 1200000,
   "notifications": {
     "enabled": true
   },

@@ -52,6 +52,17 @@ function killIDFromResult(result) {
   );
 }
 
+function payoutAtMsFromResult(result) {
+  return positive(
+    result && (
+      result.payoutAtMs ||
+      result.data && result.data.payoutAtMs ||
+      result.record && result.record.payoutAtMs
+    ),
+    0,
+  );
+}
+
 function eventKeyForTarget(targetEntity, killID = 0) {
   const itemID = positive(targetEntity && targetEntity.itemID, 0);
   const systemID = positive(
@@ -71,6 +82,8 @@ function notifyService(serviceFactory, targetEntity, destroyResult, options, res
   const attacker = options && options.attackerEntity || null;
   const whenMs = options && options.whenMs || Date.now();
   const killID = killIDFromResult(result);
+  const payoutAtMs = payoutAtMsFromResult(result);
+  const payoutTime = String(result && (result.payoutTime || "") || "");
   const nativeBountyEligible = Boolean(result && result.nativeBountyEligible === true);
   const creditedCharacterID = positive(result && result.characterID, 0);
   const eventKey = eventKeyForTarget(targetEntity, killID);
@@ -118,6 +131,8 @@ function notifyService(serviceFactory, targetEntity, destroyResult, options, res
       finalAttacker: attacker,
       characterID: creditedCharacterID,
       nativeBountyEligible,
+      payoutAtMs,
+      payoutTime,
       killID,
       eventKey,
       whenMs,
@@ -299,7 +314,13 @@ function installHooks() {
               whenMs: context.nowMs || Date.now(),
               source: "native-bounty",
             },
-            {killID: 0, nativeBountyEligible: true, characterID: creditedCharacterID},
+            {
+              killID: 0,
+              nativeBountyEligible: true,
+              characterID: creditedCharacterID,
+              payoutAtMs: result.payoutAtMs || 0,
+              payoutTime: result.payoutTime || "",
+            },
             duplicateEvents,
           );
         }
