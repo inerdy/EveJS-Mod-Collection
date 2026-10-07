@@ -5,7 +5,7 @@
     "enabled": true
   },
   "diagnostics": {
-    "enabled": false
+    "enabled": true
   },
   "progression": {
     "maxLevel": 50,
