@@ -16,8 +16,15 @@ const RUNTIME_HOOKED = Symbol.for("evejs.bountyHunting.runtimeInteropHooked");
 const BOUNTY_HOOKED = Symbol.for("evejs.bountyHunting.bountyRuntimeHooked");
 const DAMAGE_WRAPPED = Symbol.for("evejs.bountyHunting.damageInteropWrapped");
 
+const MODULE_SUFFIXES = Object.freeze({
+  serviceManager: "/server/src/services/servicemanager.js",
+  killmailTracker: "/server/src/space/combat/killmailtracker.js",
+  spaceRuntime: "/server/src/space/runtime.js",
+  bountyRuntime: "/server/src/services/bounty/bountyruntime.js",
+});
+
 function normalizedPath(value) {
-  return String(value || "").replaceAll("\\", "/").toLowerCase();
+  return String(value || "").replace(/[\\/]+/gu, "/").toLowerCase();
 }
 
 function endsWithModulePath(value, suffix) {
@@ -322,10 +329,11 @@ function installHooks() {
     const resolved = Module._resolveFilename(request, parent, isMain);
     const exported = originalLoad.call(this, request, parent, isMain);
     const resolvedText = String(resolved);
-    if (endsWithModulePath(resolvedText, SERVICE_MANAGER_SUFFIX)) {
+    const normalizedResolved = normalizedPath(resolvedText);
+    if (normalizedResolved.endsWith(MODULE_SUFFIXES.serviceManager)) {
       return wrapServiceManager(exported);
     }
-    if (endsWithModulePath(resolvedText, KILLMAIL_TRACKER_SUFFIX)) {
+    if (normalizedResolved.endsWith(MODULE_SUFFIXES.killmailTracker)) {
       if (trackerModules.has(exported)) {
         return trackerModules.get(exported);
       }
@@ -333,10 +341,10 @@ function installHooks() {
       trackerModules.set(exported, patched);
       return patched;
     }
-    if (endsWithModulePath(resolvedText, SPACE_RUNTIME_SUFFIX)) {
+    if (normalizedResolved.endsWith(MODULE_SUFFIXES.spaceRuntime)) {
       return wrapSpaceRuntime(exported);
     }
-    if (endsWithModulePath(resolvedText, BOUNTY_RUNTIME_SUFFIX)) {
+    if (normalizedResolved.endsWith(MODULE_SUFFIXES.bountyRuntime)) {
       return wrapBountyRuntime(exported);
     }
     return exported;
