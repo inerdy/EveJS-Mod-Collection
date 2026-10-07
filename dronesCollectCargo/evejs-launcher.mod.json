@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "dronescollectcargo",
+  "displayName": "Drones Collect Cargo",
+  "version": "0.1.0",
+  "description": "Lets salvage drones collect legal cargo-container contents and automatically return to the drone bay when finished.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}

@@ -1,0 +1,129 @@
+{
+  "enabled": true,
+  "clearExistingContractsOnce": true,
+  "wipeAllActiveContractsOnce": true,
+  "legacyCleanupVersion": 5,
+  "initialDelayMs": 30000,
+  "tickIntervalMs": 300000,
+  "contractsPerOrigin": 10,
+  "maxOutstandingContracts": 200,
+  "generateReturnContracts": true,
+  "maxPromotedOrigins": 20,
+  "hubDestinationWeight": 0.7,
+  "shortHaulChance": 0.35,
+  "shortHaulMaxJumps": 5,
+  "promotionThreshold": 25,
+  "activityHalfLifeMs": 86400000,
+  "presenceWeightPerPlayer": 1,
+  "maxPresenceScorePerTick": 5,
+  "acceptanceScore": 5,
+  "completionScore": 10,
+  "failureScore": 0,
+  "marketActivityScore": 1,
+  "marketStateRelativePath": "npcMarket/state.json",
+  "allowedSecurityClasses": [
+    "high"
+  ],
+  "hubStationIDs": [
+    60003760,
+    60008494,
+    60011866,
+    60004588,
+    60005686
+  ],
+  "treasury": {
+    "enabled": true,
+    "targetBalanceISK": 50000000000,
+    "replenishThresholdRatio": 0.2
+  },
+  "issuer": {
+    "corporationID": 1000148,
+    "characterID": 3015955,
+    "walletAccountKey": 1000,
+    "contractHangarFlagID": 115,
+    "minimumBalanceISK": 0
+  },
+  "reward": {
+    "baseISK": 25000,
+    "perJumpISK": 450000,
+    "perVolumeM3ISK": 2,
+    "minimumISK": 25000,
+    "maximumISK": 50000000,
+    "securityMultipliers": {
+      "high": 1,
+      "low": 1.5,
+      "null": 2.5
+    }
+  },
+  "collateral": {
+    "valueMultiplier": 1.25,
+    "minimumISK": 100000,
+    "maximumISK": 100000000
+  },
+  "courier": {
+    "offerExpirationMinutes": 4320,
+    "baseDeliveryDays": 1,
+    "jumpsPerExtraDeliveryDay": 10
+  },
+  "cargo": {
+    "referenceVolumeM3": 10000,
+    "minimumLoadFraction": 0.25,
+    "maximumLoadFraction": 0.9,
+    "minimumStackCount": 2,
+    "maximumStackCount": 5
+  },
+  "plexReward": {
+    "minimum": 10,
+    "maximum": 20
+  },
+  "haulerProgression": {
+    "maxLevel": 50,
+    "baseXPPerContract": 100,
+    "xpPerJump": 10,
+    "payoutBonusPerLevel": 0.03,
+    "xpToNextLevelBase": 1000,
+    "xpToNextLevelPerLevel": 250
+  },
+  "cargoCatalog": [
+    {
+      "typeID": 34,
+      "minimumQuantity": 10000,
+      "maximumQuantity": 900000,
+      "referenceValueISK": 2,
+      "maximumVolumeM3": 10000
+    },
+    {
+      "typeID": 35,
+      "minimumQuantity": 10000,
+      "maximumQuantity": 900000,
+      "referenceValueISK": 8,
+      "maximumVolumeM3": 10000
+    },
+    {
+      "typeID": 36,
+      "minimumQuantity": 5000,
+      "maximumQuantity": 180000,
+      "referenceValueISK": 32,
+      "maximumVolumeM3": 10000
+    },
+    {
+      "typeID": 37,
+      "minimumQuantity": 2500,
+      "maximumQuantity": 90000,
+      "referenceValueISK": 128,
+      "maximumVolumeM3": 10000
+    },
+    {
+      "typeID": 38,
+      "minimumQuantity": 1000,
+      "maximumQuantity": 18000,
+      "referenceValueISK": 512,
+      "maximumVolumeM3": 10000
+    }
+  ],
+  "templates": {
+    "titlePrefix": "[NPC Courier]",
+    "title": "{item} from {originSystem} to {destinationSystem}",
+    "description": "Transport {quantity} units of {item} from {originStation} to {destinationStation}. Route: {jumps} stargate jumps. This contract was issued by the NPC logistics network."
+  }
+}

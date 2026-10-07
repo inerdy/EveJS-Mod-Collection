@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 3,
+  "id": "starterregionbelts",
+  "displayName": "Starter Region Asteroid Belts",
+  "version": "0.1.1",
+  "description": "Adds one deterministic high-security asteroid belt to every system in region 10001004.",
+  "kind": "loader",
+  "supportedBackends": [
+    "native"
+  ],
+  "activation": {
+    "strategy": "loader_rename"
+  },
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": [
+      "0.12.9"
+    ]
+  }
+}

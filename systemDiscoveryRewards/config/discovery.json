@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "knownSpaceOnly": true,
+  "knownSpaceMaxSystemID": 31000000,
+  "recentDiscoveryLimit": 10,
+  "reward": {
+    "isk": 250000,
+    "xp": 100,
+    "skillPoints": 10000,
+    "plexMinimum": 1,
+    "plexMaximum": 3
+  },
+  "progression": {
+    "maxLevel": 50,
+    "xpToNextLevelBase": 1000,
+    "xpToNextLevelPerLevel": 250
+  }
+}

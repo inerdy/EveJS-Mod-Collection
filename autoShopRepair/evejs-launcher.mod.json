@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 3,
+  "id": "autoshoprepair",
+  "displayName": "Auto Shop Repair",
+  "version": "0.1.2",
+  "description": "Automatically repair your active ship and fitted modules after docking at an NPC station.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]},
+  "clientMenu": {"apiVersion": 1, "entrypoint": "client/menu.py"}
+}

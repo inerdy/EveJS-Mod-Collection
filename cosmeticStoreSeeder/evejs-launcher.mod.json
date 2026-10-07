@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "cosmeticstoreseeder",
+  "displayName": "Cosmetic Store Seeder",
+  "version": "0.1.0",
+  "description": "Publishes permanent ship SKIN licenses and wearable character appearance items in the in-game New Eden Store.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}

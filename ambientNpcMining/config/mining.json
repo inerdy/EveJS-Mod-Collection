@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "tickIntervalMs": 300000,
+  "initialDelayMs": 30000,
+  "spawnChance": 0.15,
+  "respawnCooldownMs": 2700000,
+  "maxFleetsPerSystem": 1,
+  "maxFleetsGlobal": 10,
+  "minerCommandQuery": "",
+  "allowedSystemIDs": []
+}

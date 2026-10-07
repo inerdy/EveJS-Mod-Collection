@@ -1,0 +1,46 @@
+{
+  "enabled": true,
+  "dryRun": false,
+  "initialDelayMs": 30000,
+  "tickIntervalMs": 3600000,
+  "itemsPerHubPerTick": 100,
+  "ordersPerSide": 3,
+  "maxActiveOrdersPerHub": 5000,
+  "targetOrderVolumeM3": 5000,
+  "maximumOrderQuantity": 1000000,
+  "minimumVolume": 1,
+  "durationDays": 3650,
+  "staleAfterMs": 604800000,
+  "minimumSpreadRatio": 0.02,
+  "hubFuelSeed": {
+    "enabled": true,
+    "typeID": 17887,
+    "quantity": 100000,
+    "sellOnly": true,
+    "repairAfterMarketRestart": true,
+    "hubStationIDs": [
+      60003760,
+      60008494,
+      60011866,
+      60004588,
+      60005686
+    ]
+  },
+  "hubStationIDs": [
+    60003760,
+    60008494,
+    60011866,
+    60004588,
+    60005686
+  ],
+  "buyTiers": [
+    {"id": "poor", "multiplier": 0.55, "weight": 20},
+    {"id": "fair", "multiplier": 0.80, "weight": 55},
+    {"id": "good", "multiplier": 0.95, "weight": 25}
+  ],
+  "sellTiers": [
+    {"id": "good", "multiplier": 1.05, "weight": 25},
+    {"id": "fair", "multiplier": 1.25, "weight": 55},
+    {"id": "poor", "multiplier": 1.80, "weight": 20}
+  ]
+}

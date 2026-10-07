@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 3,
+  "id": "systemclock",
+  "displayName": "System Clock",
+  "version": "0.3.0",
+  "description": "Shows the player's local system time in a small movable in-game window.",
+  "kind": "loader",
+  "supportedBackends": [
+    "native"
+  ],
+  "activation": {
+    "strategy": "loader_rename"
+  },
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": [
+      "0.12.9"
+    ]
+  },
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}

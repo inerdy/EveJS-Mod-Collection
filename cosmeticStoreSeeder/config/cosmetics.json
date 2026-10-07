@@ -1,0 +1,30 @@
+{
+  "enabled": true,
+  "seedVersion": 1,
+  "priceSeed": "cosmetic-store-v1",
+  "categories": {
+    "skins": 9000005,
+    "apparel": 9000006
+  },
+  "permanentSkinGroupID": 1950,
+  "apparelCategoryID": 30,
+  "apparelGroupIDs": [
+    1083,
+    1084,
+    1088,
+    1089,
+    1090,
+    1091,
+    1092
+  ],
+  "priceRanges": {
+    "skin": {
+      "min": 25,
+      "max": 250
+    },
+    "apparel": {
+      "min": 5,
+      "max": 50
+    }
+  }
+}

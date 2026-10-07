@@ -1,0 +1,4 @@
+node_modules/
+*.log
+state.json
+config/liquidity.local.json

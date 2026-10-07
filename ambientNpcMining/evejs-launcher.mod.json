@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 3,
+  "id": "ambientnpcmining",
+  "displayName": "Ambient NPC Mining",
+  "version": "0.1.0",
+  "description": "Occasionally adds transient NPC mining fleets to active solar systems.",
+  "kind": "loader",
+  "supportedBackends": [
+    "native"
+  ],
+  "activation": {
+    "strategy": "loader_rename"
+  },
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": [
+      "0.12.9"
+    ]
+  }
+}

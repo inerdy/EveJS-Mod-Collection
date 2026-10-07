@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 3,
+  "id": "shipwarpfuel",
+  "displayName": "Ship Warp Fuel",
+  "version": "0.1.0",
+  "description": "Adds Oxygen Isotope warp fuel, ship odometers, and emergency fuel service.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]},
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}

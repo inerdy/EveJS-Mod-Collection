@@ -1,0 +1,14 @@
+{
+  "regionID": 10001004,
+  "expectedSystemCount": 53,
+  "beltIDBase": 100000000,
+  "fieldStyleID": "empire_highsec_standard",
+  "itemNameSuffix": "Starter Asteroid Belt",
+  "asteroidCount": 24,
+  "clusterCount": 4,
+  "fieldRadiusMeters": 12000,
+  "clusterRadiusMeters": 2500,
+  "verticalSpreadMeters": 2500,
+  "largeAsteroidCount": 1,
+  "placementDistanceMeters": 1000000
+}

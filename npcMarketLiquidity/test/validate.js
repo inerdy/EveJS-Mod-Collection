@@ -1,0 +1,42 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const {normalizeConfig} = require(path.join(__dirname, "..", "lib", "config"));
+const pricing = require(path.join(__dirname, "..", "lib", "pricing"));
+const discord = require(path.join(__dirname, "..", "lib", "discord"));
+const service = require(path.join(__dirname, "..", "lib", "npcMarketLiquidityService"));
+
+const config = normalizeConfig({});
+assert.equal(config.hubStationIDs.length, 5);
+assert.equal(config.ordersPerSide, 3);
+assert.equal(config.hubFuelSeed.enabled, true);
+assert.equal(config.hubFuelSeed.typeID, 17887);
+assert.equal(config.hubFuelSeed.quantity, 100000);
+assert.equal(config.hubFuelSeed.sellOnly, true);
+assert.deepEqual(config.hubFuelSeed.hubStationIDs, [60003760, 60008494, 60011866, 60004588, 60005686]);
+assert.equal(service._testing.eligibleItem({typeID: 34, published: true, marketGroupID: 18, volume: 0.01, portionSize: 1}), true);
+assert.equal(service._testing.eligibleItem({typeID: 34, published: true, marketGroupID: null, volume: 0.01, portionSize: 1}), false);
+assert.equal(service._testing.quantityForItem({volume: 0.01}, config), 500000);
+assert.equal(service._testing.orderSource(60003760, 34, "buy", 0), "npc-passive:60003760:34:buy:0");
+
+const reference = pricing.buildReference({
+  sells: [{price: 100, bid: false, source: "seed"}],
+  buys: [{price: 80, bid: true, source: "seed"}],
+}, 0.02);
+assert.deepEqual(reference, {bestAsk: 100, bestBid: 80, askReference: 100, bidReference: 80});
+assert.equal(pricing.buildPrice("buy", {multiplier: 0.95}, reference, 0.02), 76);
+assert.equal(pricing.buildPrice("sell", {multiplier: 1.05}, reference, 0.02), 105);
+assert.equal(pricing.buildAveragePrice(reference), 90);
+assert.equal(pricing.buildReference({sells: [{price: 1, bid: false, source: "npc-passive"}], buys: []}), null);
+assert.equal(discord.isConfigured("https://discord.com/api/webhooks/example/token"), true);
+assert.equal(discord.isConfigured("https://example.com/webhook"), false);
+service._testing.registerManagedOrderID("42");
+const bridgedBook = service._testing.rewriteLegacyOrderSources({
+  sells: [{order_id: "42", source: "player"}],
+  buys: [{order_id: "43", source: "player"}],
+});
+assert.equal(bridgedBook.sells[0].source, "npc-passive");
+assert.equal(bridgedBook.buys[0].source, "player");
+
+console.log("npcMarketLiquidity validation passed");

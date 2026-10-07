@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 3,
+  "id": "systemdiscoveryrewards",
+  "displayName": "System Discovery Rewards",
+  "version": "0.2.0",
+  "description": "Rewards characters for discovering new known-space solar systems.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]},
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}

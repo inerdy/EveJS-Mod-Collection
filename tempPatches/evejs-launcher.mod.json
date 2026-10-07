@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "temppatches",
+  "displayName": "Temporary Patches",
+  "version": "0.1.2",
+  "description": "Retries dungeon wave reconciliation, fixes far-container messages, and adds a cleared-anomaly respawn cooldown.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}

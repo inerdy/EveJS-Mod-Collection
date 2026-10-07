@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 3,
+  "id": "ambientnpctraffic",
+  "displayName": "Ambient NPC Traffic",
+  "version": "0.1.0",
+  "description": "Adds temporary cosmetic NPC ship traffic to active solar systems.",
+  "kind": "loader",
+  "supportedBackends": [
+    "native"
+  ],
+  "activation": {
+    "strategy": "loader_rename"
+  },
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": [
+      "0.12.9"
+    ]
+  }
+}

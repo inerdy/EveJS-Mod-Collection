@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 3,
+  "id": "npcminingwing",
+  "displayName": "NPC Mining Wing",
+  "version": "0.10.0",
+  "description": "Command marked player-owned ships with automatic mining, collection-ship logistics, and combat drone support.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": ["0.12.9"]
+  },
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}

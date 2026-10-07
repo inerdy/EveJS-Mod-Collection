@@ -1,0 +1,22 @@
+{
+  "enabled": true,
+  "tickIntervalMs": 5000,
+  "shipsPerActiveSystem": 4,
+  "initialShipsPerActiveSystem": 3,
+  "maxShipsPerSystem": 8,
+  "maxShipsGlobal": 100,
+  "spawnIntervalMs": 30000,
+  "shipLifetimeMs": 900000,
+  "virtualTravelMs": 45000,
+  "dwellTimeMs": 12000,
+  "spawnDistanceMeters": 10000,
+  "arrivalDistanceMeters": 200000,
+  "orbitDistanceMeters": 5000,
+  "crossSystemChance": 0.35,
+  "profileIDs": [
+    "parity_mission_generic_40574_toms_shuttle",
+    "ore_mining_bestower_hauler",
+    "ore_mining_badger_hauler",
+    "ore_mining_mammoth_hauler"
+  ]
+}

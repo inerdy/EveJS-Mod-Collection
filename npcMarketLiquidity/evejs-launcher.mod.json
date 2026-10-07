@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "npcmarketliquidity",
+  "displayName": "NPC Market Liquidity",
+  "version": "0.3.0",
+  "description": "Gradually adds configurable synthetic NPC buy and sell orders at major trade hubs.",
+  "kind": "loader",
+  "supportedBackends": ["native", "docker"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}

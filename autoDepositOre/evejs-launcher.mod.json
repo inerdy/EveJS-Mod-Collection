@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 3,
+  "id": "autodepositore",
+  "displayName": "Auto Deposit Ore",
+  "version": "0.1.0",
+  "description": "Automatically deposits mining-hold contents into the personal hangar after docking.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]},
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}

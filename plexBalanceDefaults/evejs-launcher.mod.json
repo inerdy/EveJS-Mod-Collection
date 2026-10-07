@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "plexbalancedefaults",
+  "displayName": "PLEX Balance Defaults",
+  "version": "0.1.0",
+  "description": "Sets existing and new character PLEX balances to 100 without changing EveJS core files.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}

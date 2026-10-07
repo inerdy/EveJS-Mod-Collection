@@ -1,0 +1,102 @@
+# NPC Market Liquidity
+
+NPC Market Liquidity gradually adds synthetic NPC buy and sell orders to the
+major trade hubs. It uses the current market book as its reference, then adds
+configurable good, fair, and poor prices over time instead of relying on SDE
+`basePrice` values.
+
+The initial hubs are Jita, Amarr, Dodixie, Rens, and Hek. The mod processes a
+bounded batch once per hour, so it does not try to create thousands of orders
+in one server tick. Orders are synthetic NPC liquidity: they do not consume a
+player’s inventory or wallet.
+
+When `hubFuelSeed` is enabled, the mod also creates one 100,000-unit Oxygen
+Isotope sell order at each hub. The price uses that hub's current average
+market reference. These dedicated seed orders are idempotent, are not
+continuously replenished after being sold, and can be repaired after the
+market daemon restarts.
+
+## Requirements and installation
+
+- EveJS `0.12.9`
+- Standard market server order RPCs (`idempotent-fill-v1`)
+- EveJS Launcher `1.0.69` or newer
+
+Copy `mods/npcMarketLiquidity` into the installation's `mods` directory, enable
+it in the Launcher, and restart the Game server. The mod checks the market
+server compatibility when its first tick runs. Docker is supported as long as
+the market daemon exposes the standard order RPCs.
+
+The mod is self-contained and does not require rebuilding the native market
+server. It places its managed orders through the existing standard order RPC
+as owner ID `0`, then its loader bridge marks only those known order IDs as
+synthetic NPC orders while EveJS processes market fills. This keeps the
+native market-server source and executable unchanged while preserving the
+NPC wallet and inventory behavior in the Node market service.
+
+## Configuration
+
+Edit `mods/npcMarketLiquidity/config/liquidity.json` while the Game server is
+stopped, then restart the Game server.
+
+- `enabled`: turns the scheduler on or off.
+- `dryRun`: logs planned orders without creating or replacing market orders.
+- `tickIntervalMs`: delay between replenishment passes. The default is one hour.
+- `itemsPerHubPerTick`: limits how many eligible item types each hub processes
+  per pass. The cursor is saved, so coverage continues after a restart.
+- `ordersPerSide`: number of simultaneous buy and sell slots per item at each
+  hub.
+- `maxActiveOrdersPerHub`: safety cap for this mod's open orders at one hub.
+- `targetOrderVolumeM3` and `maximumOrderQuantity`: determine the quantity of
+  each generated order from the item's volume.
+- `staleAfterMs`: how long an order can remain open before the next pass may
+  replace it using a new market reference.
+- `minimumSpreadRatio`: prevents generated orders from crossing the current
+  book by default.
+- `hubFuelSeed`: controls the dedicated Oxygen Isotope seed. It defaults to type
+  ID `17887`, 100,000 sell units per configured hub, and repair-after-restart
+  enabled. Its `hubStationIDs` list defaults to Jita, Amarr, Dodixie, Rens, and
+  Hek. Each seed price comes from that station's current market summary.
+- `discordWebhookUrl`: optional Discord webhook URL. Keep secrets in the
+  ignored `config/liquidity.local.json` file or use the
+  `NPC_MARKET_LIQUIDITY_DISCORD_WEBHOOK_URL` environment variable.
+- `discordNotifyWhenEmpty`: sends a message for passes that created or
+  replaced no orders. It is disabled by default.
+- `hubStationIDs`: station IDs where orders are created.
+- `buyTiers` and `sellTiers`: weighted price tiers. Each tier has an `id`, a
+  price `multiplier`, and a `weight` used to assign the order slots.
+
+The mod skips items that have no market group, no usable volume, or no current
+market reference. It does not silently fall back to the static SDE base price.
+
+When Discord is configured, one summary message is sent after each pass that
+creates, replaces, or evaluates a dedicated hub fuel seed. A failed Discord
+request is logged and does not roll back or prevent market orders.
+
+## Market behavior
+
+The market server stores orders from this mod through its normal `player`
+order path using reserved owner ID `0`. The mod bridge exposes only those
+managed order IDs to EveJS as `npc-passive` orders, so they remain visible
+alongside player and seeded orders, use the native synthetic fill path, and
+are replenished after consumption. Existing seeded liquidity and player
+orders are left in place.
+
+If the market database is rebuilt with V2, the passive orders disappear with
+the replaced database and are recreated gradually on later scheduler passes.
+
+## Removal
+
+Set `enabled` to `false` and restart the Game server to stop creating new
+orders. Existing `npc-passive` orders can be cancelled with the market
+server's normal order administration tools before removing the mod. The mod's
+cursor and counters live under the active EveJS data root in
+`gameStore/npcMarketLiquidity/state.json`.
+
+## License and maintenance
+
+This project is released under the MIT License. See [LICENSE](LICENSE).
+
+If the project becomes unmaintained, you may continue working on it, modify
+it, and release your own version. Please keep the original author credit to
+**Troublesum** in the documentation and source distribution.
