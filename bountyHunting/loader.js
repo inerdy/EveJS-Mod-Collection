@@ -8,10 +8,12 @@ const MOD_VERSION = "0.1.0";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const KILLMAIL_TRACKER_SUFFIX = `${path.sep}server${path.sep}space${path.sep}combat${path.sep}killmailTracker.js`;
 const SPACE_RUNTIME_SUFFIX = `${path.sep}server${path.sep}space${path.sep}runtime.js`;
+const BOUNTY_RUNTIME_SUFFIX = `${path.sep}server${path.sep}services${path.sep}bounty${path.sep}bountyRuntime.js`;
 const INSTALLED = Symbol.for("evejs.bountyHunting.loaderInstalled");
 const TRACKER_HOOKED = Symbol.for("evejs.bountyHunting.killmailTrackerHooked");
 const TRACKER_WRAPPED = Symbol.for("evejs.bountyHunting.killmailTrackerWrapped");
 const RUNTIME_HOOKED = Symbol.for("evejs.bountyHunting.runtimeInteropHooked");
+const BOUNTY_HOOKED = Symbol.for("evejs.bountyHunting.bountyRuntimeHooked");
 
 function log(message) {
   console.log(`[${MOD_ID}] ${message}`);
@@ -34,6 +36,18 @@ function killIDFromResult(result) {
   );
 }
 
+function eventKeyForTarget(targetEntity, killID = 0) {
+  const itemID = positive(targetEntity && targetEntity.itemID, 0);
+  const systemID = positive(
+    targetEntity && (targetEntity.systemID || targetEntity.solarSystemID),
+    0,
+  );
+  if (itemID > 0) {
+    return `npc:${systemID}:${itemID}`;
+  }
+  return killID > 0 ? `killmail:${killID}` : "";
+}
+
 function notifyService(serviceFactory, targetEntity, destroyResult, options, result) {
   if (!destroyResult || destroyResult.success !== true || !targetEntity) {
     return;
@@ -41,7 +55,7 @@ function notifyService(serviceFactory, targetEntity, destroyResult, options, res
   const attacker = options && options.attackerEntity || null;
   const whenMs = options && options.whenMs || Date.now();
   const killID = killIDFromResult(result);
-  const eventKey = killID > 0 ? `killmail:${killID}` : "";
+  const eventKey = eventKeyForTarget(targetEntity, killID);
   try {
     const work = serviceFactory().recordNpcKill({
       targetEntity,
@@ -146,6 +160,36 @@ function installHooks() {
     return exported;
   }
 
+  function wrapBountyRuntime(exported) {
+    if (!exported || exported[BOUNTY_HOOKED]) {
+      return exported;
+    }
+    const originalRecord = exported.recordNpcBountyKill;
+    if (typeof originalRecord === "function") {
+      exported.recordNpcBountyKill = function bountyRecordNpcKill(...args) {
+        const result = originalRecord.apply(this, args);
+        if (result && result.eligible === true && result.alreadyRecorded !== true) {
+          const victimEntity = args[0] || null;
+          const finalAttacker = args[1] || null;
+          const context = args[2] || {};
+          notifyService(
+            getService,
+            victimEntity,
+            {success: true},
+            {
+              attackerEntity: finalAttacker,
+              whenMs: context.nowMs || Date.now(),
+            },
+            {killID: 0},
+          );
+        }
+        return result;
+      };
+    }
+    Object.defineProperty(exported, BOUNTY_HOOKED, {value: true});
+    return exported;
+  }
+
   function patchCachedModule(request, patcher) {
     try {
       const resolved = require.resolve(request);
@@ -179,6 +223,9 @@ function installHooks() {
     if (resolvedText.endsWith(SPACE_RUNTIME_SUFFIX)) {
       return wrapSpaceRuntime(exported);
     }
+    if (resolvedText.endsWith(BOUNTY_RUNTIME_SUFFIX)) {
+      return wrapBountyRuntime(exported);
+    }
     return exported;
   }
 
@@ -192,6 +239,10 @@ function installHooks() {
   patchCachedModule(
     path.join(__dirname, "..", "..", "server", "src", "space", "runtime"),
     wrapSpaceRuntime,
+  );
+  patchCachedModule(
+    path.join(__dirname, "..", "..", "server", "src", "services", "bounty", "bountyRuntime"),
+    wrapBountyRuntime,
   );
   patchCachedModule(
     path.join(__dirname, "..", "..", "server", "src", "services", "serviceManager"),

@@ -257,6 +257,9 @@ async function validateAsync() {
   assert.match(loader, /serviceManager\.js/u);
   assert.match(loader, /killmailTracker\.js/u);
   assert.match(loader, /SPACE_RUNTIME_SUFFIX/u);
+  assert.match(loader, /BOUNTY_RUNTIME_SUFFIX/u);
+  assert.match(loader, /recordNpcBountyKill/u);
+  assert.match(loader, /eventKeyForTarget/u);
   assert.match(loader, /droneInterop/u);
   assert.match(loader, /patchCachedModule/u);
   assert.match(loader, /enqueueKillmailFromDestruction/u);
