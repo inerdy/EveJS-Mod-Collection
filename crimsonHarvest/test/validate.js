@@ -71,5 +71,7 @@ assert.match(serviceText, /reconcileUniverseSeededInstances/);
 assert.match(serviceText, /siteOriginFilter/);
 assert.match(serviceText, /purgeInstances/);
 assert.match(serviceText, /sendSystemMessage/);
+assert.match(serviceText, /CustomNotify/);
+assert.match(serviceText, /setTimeout\(deliver, 750\)/);
 
 console.log("Crimson Harvest validation passed.");

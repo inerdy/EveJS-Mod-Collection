@@ -337,6 +337,41 @@ class CrimsonHarvestService extends BaseService {
     return current;
   }
 
+  sendConnectionNotification(session) {
+    if (!session || typeof session !== "object" || this._notifiedSessions.has(session)) {
+      return false;
+    }
+    this._notifiedSessions.add(session);
+    const deliver = () => {
+      try {
+        if (typeof session.sendNotification === "function") {
+          session.sendNotification("OnRemoteMessage", "clientID", [
+            "CustomNotify",
+            {
+              type: "dict",
+              entries: [["notify", EVENT_MESSAGE]],
+            },
+          ]);
+          return true;
+        }
+        this.getDependencies().chatHub.sendSystemMessage(session, EVENT_MESSAGE);
+        return true;
+      } catch (error) {
+        console.warn(`[crimsonHarvest] connection notification failed safely: ${error.message}`);
+        return false;
+      }
+    };
+
+    // Initial login can attach the ship before the client has finished
+    // registering its notification channel. Queue delivery just after attach
+    // so the native client can receive the message reliably.
+    const timer = setTimeout(deliver, 750);
+    if (timer && typeof timer.unref === "function") {
+      timer.unref();
+    }
+    return true;
+  }
+
   listEventInstances() {
     const runtime = this.getDependencies().dungeonRuntime;
     return LIFECYCLE_STATES.flatMap((lifecycleState) => runtime.listInstancesByLifecycle(
@@ -399,12 +434,7 @@ class CrimsonHarvestService extends BaseService {
     const nowMs = Date.now();
     const active = isEventActive(nowMs);
     if (active && session && typeof session === "object" && !this._notifiedSessions.has(session)) {
-      this._notifiedSessions.add(session);
-      try {
-        this.getDependencies().chatHub.sendSystemMessage(session, EVENT_MESSAGE);
-      } catch (error) {
-        console.warn(`[crimsonHarvest] connection notification failed safely: ${error.message}`);
-      }
+      this.sendConnectionNotification(session);
     }
     const systemID = resolveSystemID(session, attached, options);
     if (systemID > 0) {
