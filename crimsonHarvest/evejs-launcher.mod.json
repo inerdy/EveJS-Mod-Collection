@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 3,
+  "id": "crimsonharvest",
+  "displayName": "Crimson Harvest",
+  "version": "0.1.0",
+  "description": "Adds an annual mixed Crimson Harvest anomaly and combat-signature event.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {
+    "strategy": "loader_rename"
+  },
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": ["0.12.9"]
+  }
+}
