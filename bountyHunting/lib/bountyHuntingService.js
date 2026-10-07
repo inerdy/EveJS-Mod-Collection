@@ -314,14 +314,23 @@ class BountyHuntingService extends BaseService {
   recordNpcKill({
     targetEntity = null,
     finalAttacker = null,
+    characterID: creditedCharacterID = 0,
+    nativeBountyEligible = false,
     killID = 0,
     eventKey = "",
     whenMs = Date.now(),
   } = {}) {
-    if (!this._config.enabled || !targetEntity || !isNativeNpc(targetEntity)) {
+    if (
+      !this._config.enabled ||
+      !targetEntity ||
+      (!isNativeNpc(targetEntity) && nativeBountyEligible !== true)
+    ) {
       return Promise.resolve({success: true, skipped: true});
     }
-    const characterID = characterIDFromAttacker(finalAttacker || {});
+    const characterID = positive(
+      creditedCharacterID,
+      characterIDFromAttacker(finalAttacker || {}),
+    );
     if (!characterID) {
       return Promise.resolve({success: true, skipped: true, reason: "FINAL_ATTACKER_CHARACTER_REQUIRED"});
     }

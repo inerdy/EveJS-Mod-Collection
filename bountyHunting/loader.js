@@ -14,6 +14,15 @@ const TRACKER_HOOKED = Symbol.for("evejs.bountyHunting.killmailTrackerHooked");
 const TRACKER_WRAPPED = Symbol.for("evejs.bountyHunting.killmailTrackerWrapped");
 const RUNTIME_HOOKED = Symbol.for("evejs.bountyHunting.runtimeInteropHooked");
 const BOUNTY_HOOKED = Symbol.for("evejs.bountyHunting.bountyRuntimeHooked");
+const DAMAGE_WRAPPED = Symbol.for("evejs.bountyHunting.damageInteropWrapped");
+
+function normalizedPath(value) {
+  return String(value || "").replaceAll("\\", "/").toLowerCase();
+}
+
+function endsWithModulePath(value, suffix) {
+  return normalizedPath(value).endsWith(normalizedPath(suffix));
+}
 
 function log(message) {
   console.log(`[${MOD_ID}] ${message}`);
@@ -55,11 +64,15 @@ function notifyService(serviceFactory, targetEntity, destroyResult, options, res
   const attacker = options && options.attackerEntity || null;
   const whenMs = options && options.whenMs || Date.now();
   const killID = killIDFromResult(result);
+  const nativeBountyEligible = Boolean(result && result.nativeBountyEligible === true);
+  const creditedCharacterID = positive(result && result.characterID, 0);
   const eventKey = eventKeyForTarget(targetEntity, killID);
   try {
     const work = serviceFactory().recordNpcKill({
       targetEntity,
       finalAttacker: attacker,
+      characterID: creditedCharacterID,
+      nativeBountyEligible,
       killID,
       eventKey,
       whenMs,
@@ -156,6 +169,28 @@ function installHooks() {
       };
       interop.recordKillmailFromDestruction = wrappedRecord;
     }
+    const originalDamage = interop && interop.applyWeaponDamageToTarget;
+    if (interop && typeof originalDamage === "function" && !originalDamage[DAMAGE_WRAPPED]) {
+      const wrappedDamage = function bountyDroneApplyWeaponDamage(...args) {
+        const result = originalDamage.apply(this, args);
+        const destroyResult = result && result.destroyResult;
+        if (destroyResult && destroyResult.success === true) {
+          notifyService(
+            getService,
+            args[2] || null,
+            destroyResult,
+            {
+              attackerEntity: args[1] || null,
+              whenMs: args[4] || Date.now(),
+            },
+            null,
+          );
+        }
+        return result;
+      };
+      Object.defineProperty(wrappedDamage, DAMAGE_WRAPPED, {value: true});
+      interop.applyWeaponDamageToTarget = wrappedDamage;
+    }
     Object.defineProperty(exported, RUNTIME_HOOKED, {value: true});
     return exported;
   }
@@ -172,15 +207,29 @@ function installHooks() {
           const victimEntity = args[0] || null;
           const finalAttacker = args[1] || null;
           const context = args[2] || {};
+          const creditedCharacterID = positive(
+            result.characterID ||
+              context.characterID ||
+              finalAttacker && (
+                finalAttacker.characterID ||
+                finalAttacker.pilotCharacterID ||
+                finalAttacker.ownerCharacterID
+              ),
+            0,
+          );
           notifyService(
             getService,
             victimEntity,
             {success: true},
             {
-              attackerEntity: finalAttacker,
+              attackerEntity: {
+                ...(finalAttacker || {}),
+                characterID: creditedCharacterID || undefined,
+                pilotCharacterID: creditedCharacterID || undefined,
+              },
               whenMs: context.nowMs || Date.now(),
             },
-            {killID: 0},
+            {killID: 0, nativeBountyEligible: true, characterID: creditedCharacterID},
           );
         }
         return result;
@@ -209,10 +258,10 @@ function installHooks() {
     const resolved = Module._resolveFilename(request, parent, isMain);
     const exported = originalLoad.call(this, request, parent, isMain);
     const resolvedText = String(resolved);
-    if (resolvedText.endsWith(SERVICE_MANAGER_SUFFIX)) {
+    if (endsWithModulePath(resolvedText, SERVICE_MANAGER_SUFFIX)) {
       return wrapServiceManager(exported);
     }
-    if (resolvedText.endsWith(KILLMAIL_TRACKER_SUFFIX)) {
+    if (endsWithModulePath(resolvedText, KILLMAIL_TRACKER_SUFFIX)) {
       if (trackerModules.has(exported)) {
         return trackerModules.get(exported);
       }
@@ -220,10 +269,10 @@ function installHooks() {
       trackerModules.set(exported, patched);
       return patched;
     }
-    if (resolvedText.endsWith(SPACE_RUNTIME_SUFFIX)) {
+    if (endsWithModulePath(resolvedText, SPACE_RUNTIME_SUFFIX)) {
       return wrapSpaceRuntime(exported);
     }
-    if (resolvedText.endsWith(BOUNTY_RUNTIME_SUFFIX)) {
+    if (endsWithModulePath(resolvedText, BOUNTY_RUNTIME_SUFFIX)) {
       return wrapBountyRuntime(exported);
     }
     return exported;

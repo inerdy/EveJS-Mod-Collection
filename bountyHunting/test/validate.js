@@ -99,6 +99,7 @@ const skillNotifications = [];
 const characterRecords = new Map([
   [42, {freeSkillPoints: 0}],
   [43, {freeSkillPoints: 0}],
+  [44, {freeSkillPoints: 0}],
 ]);
 let failPlexOnce = true;
 let savedState = normalizeState({});
@@ -223,6 +224,23 @@ async function validateAsync() {
   assert.equal(droneResult.success, true);
   assert.equal(savedState.characters["43"].totalKills, 1);
 
+  const nativeBountyResult = await service.recordNpcKill({
+    targetEntity: {
+      kind: "ship",
+      itemID: 7003,
+      typeID: 1236,
+      systemID: 30000001,
+      name: "Native Metadata Rat",
+      bounty: 25000,
+    },
+    finalAttacker: {},
+    characterID: 44,
+    nativeBountyEligible: true,
+    eventKey: "npc:30000001:7003",
+  });
+  assert.equal(nativeBountyResult.success, true);
+  assert.equal(savedState.characters["44"].totalKills, 1);
+
   const playerResult = await service.recordNpcKill({
     targetEntity: {kind: "ship", characterID: 9001, itemID: 8001, bounty: 1000000},
     finalAttacker: {characterID: 42},
@@ -261,6 +279,7 @@ async function validateAsync() {
   assert.match(loader, /recordNpcBountyKill/u);
   assert.match(loader, /eventKeyForTarget/u);
   assert.match(loader, /droneInterop/u);
+  assert.match(loader, /applyWeaponDamageToTarget/u);
   assert.match(loader, /patchCachedModule/u);
   assert.match(loader, /enqueueKillmailFromDestruction/u);
   assert.match(loader, /recordKillmailFromDestruction/u);
