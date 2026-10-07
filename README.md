@@ -76,9 +76,9 @@ that changes the database.
 
 The available packages are listed in this directory. They include NPC
 activity, mining, courier contracts, market behavior, ship utilities, starter
-content, progression, station storage, client utilities, and temporary EveJS
-patches. Each package is independent and has its own version and compatibility
-manifest.
+content, progression, station storage, client utilities, dungeon respawn
+cooldowns, and temporary EveJS patches. Each package is independent and has
+its own version and compatibility manifest.
 
 For a complete description of a specific package, open its `README.md`. The
 GitHub wiki will later provide a central feature reference and installation

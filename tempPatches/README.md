@@ -12,9 +12,10 @@ It also replaces EveJS's malformed generic `TargetTooFar` response for cargo
 containers with a readable range message. The native container access range is
 not changed.
 
-Cleared combat anomalies are removed after the player leaves and remain on a
-30-minute cooldown before the location can receive a replacement anomaly. This
-prevents a cleared dungeon from immediately resetting when the player returns.
+The cleared-anomaly respawn cooldown is provided by the separate
+`dungeonRespawnCooldown` mod. Keeping that behavior separate makes it possible
+to disable this temporary bug-fix package without changing anomaly respawn
+timers.
 
 It is intended for EveJS `0.12.9` and requires a game-server restart after
 installation or replacement. It does not change dungeon content packs and does

@@ -11,7 +11,7 @@ const manifest = JSON.parse(
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "temppatches");
-assert.equal(manifest.version, "0.1.4");
+assert.equal(manifest.version, "0.2.0");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -24,9 +24,6 @@ assert.equal(tempPatches.id, "temppatches");
 const {
   ensureSceneMaterializedSiteMarker,
   DUNGEON_DIAGNOSTICS_ENABLED,
-  CLEARED_ANOMALY_COOLDOWN_MS,
-  getAnomalyCooldownDeadline,
-  isCooldownEligibleAnomaly,
   buildContainerOutOfRangeMessage,
   isDungeonScopedEntity,
   matchedDungeonInstanceCount,
@@ -37,29 +34,6 @@ const {
 } =
   tempPatches._testing;
 assert.equal(DUNGEON_DIAGNOSTICS_ENABLED, true);
-assert.equal(CLEARED_ANOMALY_COOLDOWN_MS, 30 * 60 * 1000);
-const completedAnomaly = {
-  instanceID: 9001,
-  lifecycleState: "completed",
-  lifecycleReason: "encounters_cleared",
-  siteKind: "anomaly",
-  siteOrigin: "universe_dungeon",
-  solarSystemID: 30000142,
-  timers: {completedAtMs: 1_000_000, expiresAtMs: 1_000_000},
-};
-assert.equal(isCooldownEligibleAnomaly(completedAnomaly), true);
-assert.equal(
-  getAnomalyCooldownDeadline(completedAnomaly),
-  1_000_000 + 30 * 60 * 1000,
-);
-assert.equal(
-  isCooldownEligibleAnomaly({
-    ...completedAnomaly,
-    siteOrigin: "generatedMining",
-    lifecycleReason: "depleted",
-  }),
-  false,
-);
 assert.equal(isDungeonScopedEntity({dungeonMaterializedSiteContent: true}), true);
 assert.equal(isDungeonScopedEntity({dungeonSiteInstanceID: 42}), true);
 assert.equal(isDungeonScopedEntity({nativeNpc: true}), false);
@@ -144,84 +118,6 @@ assert.equal(
 );
 assert.equal(trackingNotifications.length, 1);
 
-const fakeTerminalInstances = [completedAnomaly];
-const fakeDungeonRuntime = {
-  listUniversePersistentTerminalInstances() {
-    return fakeTerminalInstances;
-  },
-};
-const fakeUniverseRuntime = {
-  getUniversePersistentLifecycleBoundary() {
-    return null;
-  },
-  advanceUniversePersistentSites() {
-    return {
-      rotatedCount: fakeDungeonRuntime.listUniversePersistentTerminalInstances().length,
-    };
-  },
-};
-assert.equal(
-  tempPatches._testing.patchDungeonUniverseRuntime(fakeUniverseRuntime, {
-    runtime: fakeDungeonRuntime,
-    isSiteTeardownParked: () => false,
-  }),
-  true,
-);
-assert.equal(
-  fakeUniverseRuntime.getUniversePersistentLifecycleBoundary(1_000_001).boundaryAtMs,
-  1_000_000 + 30 * 60 * 1000,
-);
-assert.equal(
-  fakeUniverseRuntime.advanceUniversePersistentSites({nowMs: 1_000_001}).rotatedCount,
-  0,
-);
-assert.equal(
-  fakeUniverseRuntime.advanceUniversePersistentSites({nowMs: 1_000_000 + 30 * 60 * 1000}).rotatedCount,
-  1,
-);
-
-const fakeAdapterRuntime = {
-  listUniversePersistentTerminalInstances() {
-    const nowMs = Date.now();
-    return [{
-      ...completedAnomaly,
-      timers: {completedAtMs: nowMs, expiresAtMs: nowMs},
-    }];
-  },
-};
-const fakeSiteAdapter = {
-  enrichSiteWithDungeonRuntime(site) {
-    return {...site, instanceID: 1234};
-  },
-};
-assert.equal(
-  tempPatches._testing.patchDungeonSiteAdapter(fakeSiteAdapter, {
-    runtime: fakeAdapterRuntime,
-  }),
-  true,
-);
-const suppressedSite = fakeSiteAdapter.enrichSiteWithDungeonRuntime({
-  siteID: 9001,
-  instanceID: 9001,
-  solarSystemID: 30000142,
-});
-assert.equal(suppressedSite.instanceID, null);
-assert.equal(suppressedSite.tempPatchesAnomalyCooldown, true);
-
-const fakeSignatureRuntime = {
-  listSystemAnomalySites() {
-    return [
-      suppressedSite,
-      {siteID: 9002, tempPatchesAnomalyCooldown: false},
-    ];
-  },
-};
-assert.equal(tempPatches._testing.patchSignatureRuntime(fakeSignatureRuntime), true);
-assert.deepEqual(
-  fakeSignatureRuntime.listSystemAnomalySites().map((site) => site.siteID),
-  [9002],
-);
-
 class FakeInvBrokerService {}
 FakeInvBrokerService.prototype._throwSpaceContainerScopeAccessError = function original(errorMsg) {
   return errorMsg;
@@ -248,7 +144,6 @@ assert.match(readme, /native-only/u);
 assert.match(readme, /Docker/u);
 assert.match(readme, /game-server restart/u);
 assert.match(readme, /wave_cleared/u);
-assert.match(readme, /30-minute cooldown/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {

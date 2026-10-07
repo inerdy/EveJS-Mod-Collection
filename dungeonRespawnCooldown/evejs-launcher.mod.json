@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "dungeonrespawncooldown",
+  "displayName": "Dungeon Respawn Cooldown",
+  "version": "0.1.0",
+  "description": "Keeps cleared combat anomalies from immediately respawning at the same location.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}
