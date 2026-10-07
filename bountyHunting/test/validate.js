@@ -256,6 +256,8 @@ async function validateAsync() {
   const loader = read("loader.js");
   assert.match(loader, /serviceManager\.js/u);
   assert.match(loader, /killmailTracker\.js/u);
+  assert.match(loader, /SPACE_RUNTIME_SUFFIX/u);
+  assert.match(loader, /droneInterop/u);
   assert.match(loader, /patchCachedModule/u);
   assert.match(loader, /enqueueKillmailFromDestruction/u);
   assert.match(loader, /recordKillmailFromDestruction/u);

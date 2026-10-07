@@ -7,8 +7,11 @@ const MOD_ID = "bountyhunting";
 const MOD_VERSION = "0.1.0";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const KILLMAIL_TRACKER_SUFFIX = `${path.sep}server${path.sep}space${path.sep}combat${path.sep}killmailTracker.js`;
+const SPACE_RUNTIME_SUFFIX = `${path.sep}server${path.sep}space${path.sep}runtime.js`;
 const INSTALLED = Symbol.for("evejs.bountyHunting.loaderInstalled");
 const TRACKER_HOOKED = Symbol.for("evejs.bountyHunting.killmailTrackerHooked");
+const TRACKER_WRAPPED = Symbol.for("evejs.bountyHunting.killmailTrackerWrapped");
+const RUNTIME_HOOKED = Symbol.for("evejs.bountyHunting.runtimeInteropHooked");
 
 function log(message) {
   console.log(`[${MOD_ID}] ${message}`);
@@ -104,20 +107,42 @@ function installHooks() {
     const originalRecord = exported.recordKillmailFromDestruction;
     const originalEnqueue = exported.enqueueKillmailFromDestruction;
     if (typeof originalRecord === "function") {
-      exported.recordKillmailFromDestruction = function bountyRecordKillmail(...args) {
+      const wrappedRecord = function bountyRecordKillmail(...args) {
         const result = originalRecord.apply(this, args);
         notifyService(getService, args[0], args[1], args[2] || {}, result);
         return result;
       };
+      Object.defineProperty(wrappedRecord, TRACKER_WRAPPED, {value: true});
+      exported.recordKillmailFromDestruction = wrappedRecord;
     }
     if (typeof originalEnqueue === "function") {
-      exported.enqueueKillmailFromDestruction = function bountyEnqueueKillmail(...args) {
+      const wrappedEnqueue = function bountyEnqueueKillmail(...args) {
         const result = originalEnqueue.apply(this, args);
         notifyService(getService, args[0], args[1], args[2] || {}, result);
         return result;
       };
+      Object.defineProperty(wrappedEnqueue, TRACKER_WRAPPED, {value: true});
+      exported.enqueueKillmailFromDestruction = wrappedEnqueue;
     }
     Object.defineProperty(exported, TRACKER_HOOKED, {value: true});
+    return exported;
+  }
+
+  function wrapSpaceRuntime(exported) {
+    if (!exported || exported[RUNTIME_HOOKED]) {
+      return exported;
+    }
+    const interop = exported.droneInterop;
+    const originalRecord = interop && interop.recordKillmailFromDestruction;
+    if (interop && typeof originalRecord === "function" && !originalRecord[TRACKER_WRAPPED]) {
+      const wrappedRecord = function bountyDroneRecordKillmail(...args) {
+        const result = originalRecord.apply(this, args);
+        notifyService(getService, args[0], args[1], args[2] || {}, result);
+        return result;
+      };
+      interop.recordKillmailFromDestruction = wrappedRecord;
+    }
+    Object.defineProperty(exported, RUNTIME_HOOKED, {value: true});
     return exported;
   }
 
@@ -151,6 +176,9 @@ function installHooks() {
       trackerModules.set(exported, patched);
       return patched;
     }
+    if (resolvedText.endsWith(SPACE_RUNTIME_SUFFIX)) {
+      return wrapSpaceRuntime(exported);
+    }
     return exported;
   }
 
@@ -160,6 +188,10 @@ function installHooks() {
   patchCachedModule(
     path.join(__dirname, "..", "..", "server", "src", "space", "combat", "killmailTracker"),
     wrapKillmailTracker,
+  );
+  patchCachedModule(
+    path.join(__dirname, "..", "..", "server", "src", "space", "runtime"),
+    wrapSpaceRuntime,
   );
   patchCachedModule(
     path.join(__dirname, "..", "..", "server", "src", "services", "serviceManager"),
