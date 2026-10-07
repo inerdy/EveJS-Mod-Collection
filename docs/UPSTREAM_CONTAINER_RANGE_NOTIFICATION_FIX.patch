@@ -1,0 +1,14 @@
+diff --git a/server/src/services/inventory/invBrokerService.js b/server/src/services/inventory/invBrokerService.js
+--- a/server/src/services/inventory/invBrokerService.js
++++ b/server/src/services/inventory/invBrokerService.js
+@@ -4550,3 +4550,9 @@ class InvBrokerService extends BaseService {
+     if (String(errorMsg || "").trim() === "CONTAINER_TOO_FAR") {
+-      throwWrappedUserError("TargetTooFar");
++      const maximumDistanceMeters = Number(MAX_CARGO_CONTAINER_TRANSFER_DISTANCE_METERS);
++      const normalizedDistance = Number.isFinite(maximumDistanceMeters) && maximumDistanceMeters > 0
++        ? Math.round(maximumDistanceMeters)
++        : 2_500;
++      throwWrappedUserError("CustomNotify", {
++        notify: `That container is too far away. Move within ${normalizedDistance.toLocaleString("en-US")} meters to open or access it.`,
++      });
+     }
