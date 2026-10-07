@@ -1,0 +1,54 @@
+{
+  "enabled": true,
+  "recentKillLimit": 10,
+  "notifications": {
+    "enabled": true
+  },
+  "progression": {
+    "maxLevel": 50,
+    "xpToNextLevelBase": 1000,
+    "xpToNextLevelPerLevel": 250
+  },
+  "tiers": [
+    {
+      "id": "low",
+      "label": "Low",
+      "maxBountyISK": 9999,
+      "isk": 25000,
+      "skillPoints": 1000,
+      "plexMinimum": 0,
+      "plexMaximum": 0,
+      "xp": 25
+    },
+    {
+      "id": "standard",
+      "label": "Standard",
+      "maxBountyISK": 99999,
+      "isk": 75000,
+      "skillPoints": 2500,
+      "plexMinimum": 1,
+      "plexMaximum": 1,
+      "xp": 50
+    },
+    {
+      "id": "elite",
+      "label": "Elite",
+      "maxBountyISK": 999999,
+      "isk": 150000,
+      "skillPoints": 5000,
+      "plexMinimum": 1,
+      "plexMaximum": 1,
+      "xp": 100
+    },
+    {
+      "id": "boss",
+      "label": "Boss",
+      "maxBountyISK": null,
+      "isk": 300000,
+      "skillPoints": 10000,
+      "plexMinimum": 2,
+      "plexMaximum": 2,
+      "xp": 250
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 3,
+  "id": "bountyhunting",
+  "displayName": "Bounty Hunting",
+  "version": "0.1.0",
+  "description": "Awards NPC bounty-hunting progression and configurable rewards for final blows.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]},
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}
