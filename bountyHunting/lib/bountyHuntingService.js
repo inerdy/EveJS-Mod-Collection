@@ -194,9 +194,30 @@ class BountyHuntingService extends BaseService {
   getStatus() {
     return {
       enabled: this._config.enabled,
+      diagnosticsEnabled: this._config.diagnostics.enabled,
       characterCount: Object.keys(this._state.characters || {}).length,
       pendingRewards: pendingKillCount(this._state),
     };
+  }
+
+  recordHookDiagnostic({
+    source = "unknown",
+    eventKey = "",
+    characterID = 0,
+    targetEntity = null,
+    nativeBountyEligible = false,
+    outcome = "seen",
+  } = {}) {
+    if (!this._config.diagnostics.enabled) {
+      return;
+    }
+    log.info(
+      `[${MOD_ID}][debug] hook=${String(source)} outcome=${String(outcome)} ` +
+        `event=${String(eventKey || "none")} character=${positive(characterID, 0)} ` +
+        `target=${positive(targetEntity && targetEntity.itemID, 0)} ` +
+        `kind=${String(targetEntity && targetEntity.kind || "unknown")} ` +
+        `nativeEligible=${nativeBountyEligible === true}`,
+    );
   }
 
   Handle_GetStatus() {

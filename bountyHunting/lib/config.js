@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
   recentKillLimit: 10,
   notifications: {enabled: true},
+  diagnostics: {enabled: false},
   progression: {
     maxLevel: 50,
     xpToNextLevelBase: 1000,
@@ -88,6 +89,9 @@ function normalizeConfig(value = {}) {
   const notifications = source.notifications && typeof source.notifications === "object"
     ? source.notifications
     : {};
+  const diagnostics = source.diagnostics && typeof source.diagnostics === "object"
+    ? source.diagnostics
+    : {};
   const progression = source.progression && typeof source.progression === "object"
     ? source.progression
     : {};
@@ -95,6 +99,7 @@ function normalizeConfig(value = {}) {
     enabled: source.enabled !== false,
     recentKillLimit: integer(source.recentKillLimit, DEFAULT_CONFIG.recentKillLimit, 1, 100),
     notifications: Object.freeze({enabled: notifications.enabled !== false}),
+    diagnostics: Object.freeze({enabled: diagnostics.enabled === true}),
     progression: Object.freeze({
       maxLevel: integer(progression.maxLevel, DEFAULT_CONFIG.progression.maxLevel, 1, 50),
       xpToNextLevelBase: integer(

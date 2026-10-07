@@ -31,6 +31,7 @@ Edit `config/bounty-hunting.json` while the Game server is stopped, then restart
 The configuration controls:
 
 - `enabled`
+- `diagnostics.enabled` for temporary hook tracing in the server log
 - the 50-level XP curve
 - the number of recent kills shown in the Mods window
 - reward notifications
@@ -59,6 +60,8 @@ Open Bounty Hunting from the in-game Mods window. The scrollable window shows:
 - the active reward table
 
 Reward messages are sent as system messages when a reward is settled. Set `notifications.enabled` to `false` to disable them.
+
+For troubleshooting, set `diagnostics.enabled` to `true` and restart the game server. The server log will show whether native bounty, drone destruction, or killmail hooks observed a kill and whether duplicate hook calls were suppressed. Disable diagnostics after testing.
 
 ## Reward safety
 

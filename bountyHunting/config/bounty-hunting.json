@@ -4,6 +4,9 @@
   "notifications": {
     "enabled": true
   },
+  "diagnostics": {
+    "enabled": false
+  },
   "progression": {
     "maxLevel": 50,
     "xpToNextLevelBase": 1000,

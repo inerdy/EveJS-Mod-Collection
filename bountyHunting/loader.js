@@ -57,7 +57,7 @@ function eventKeyForTarget(targetEntity, killID = 0) {
   return killID > 0 ? `killmail:${killID}` : "";
 }
 
-function notifyService(serviceFactory, targetEntity, destroyResult, options, result) {
+function notifyService(serviceFactory, targetEntity, destroyResult, options, result, duplicateEvents) {
   if (!destroyResult || destroyResult.success !== true || !targetEntity) {
     return;
   }
@@ -68,7 +68,45 @@ function notifyService(serviceFactory, targetEntity, destroyResult, options, res
   const creditedCharacterID = positive(result && result.characterID, 0);
   const eventKey = eventKeyForTarget(targetEntity, killID);
   try {
-    const work = serviceFactory().recordNpcKill({
+    const service = serviceFactory();
+    const attackerCharacterID = positive(
+      creditedCharacterID ||
+        attacker && (
+          attacker.characterID ||
+          attacker.pilotCharacterID ||
+          attacker.ownerCharacterID ||
+          attacker.controllerOwnerID ||
+          attacker.session && attacker.session.characterID
+        ),
+      0,
+    );
+    if (duplicateEvents && eventKey && attackerCharacterID > 0) {
+      if (duplicateEvents.has(eventKey)) {
+        service.recordHookDiagnostic({
+          source: options && options.source || "unknown",
+          eventKey,
+          characterID: attackerCharacterID,
+          targetEntity,
+          nativeBountyEligible,
+          outcome: "duplicate-suppressed",
+        });
+        return;
+      }
+      duplicateEvents.set(eventKey, Date.now());
+      if (duplicateEvents.size > 4096) {
+        const oldest = duplicateEvents.keys().next().value;
+        duplicateEvents.delete(oldest);
+      }
+    }
+    service.recordHookDiagnostic({
+      source: options && options.source || "unknown",
+      eventKey,
+      characterID: attackerCharacterID,
+      targetEntity,
+      nativeBountyEligible,
+      outcome: "captured",
+    });
+    const work = service.recordNpcKill({
       targetEntity,
       finalAttacker: attacker,
       characterID: creditedCharacterID,
@@ -95,6 +133,7 @@ function installHooks() {
   const originalLoad = Module._load;
   const serviceManagers = new WeakMap();
   const trackerModules = new WeakMap();
+  const duplicateEvents = new Map();
   let service = null;
 
   function getService() {
@@ -136,7 +175,14 @@ function installHooks() {
     if (typeof originalRecord === "function") {
       const wrappedRecord = function bountyRecordKillmail(...args) {
         const result = originalRecord.apply(this, args);
-        notifyService(getService, args[0], args[1], args[2] || {}, result);
+        notifyService(
+          getService,
+          args[0],
+          args[1],
+          {...(args[2] || {}), source: "killmail-tracker"},
+          result,
+          duplicateEvents,
+        );
         return result;
       };
       Object.defineProperty(wrappedRecord, TRACKER_WRAPPED, {value: true});
@@ -145,7 +191,14 @@ function installHooks() {
     if (typeof originalEnqueue === "function") {
       const wrappedEnqueue = function bountyEnqueueKillmail(...args) {
         const result = originalEnqueue.apply(this, args);
-        notifyService(getService, args[0], args[1], args[2] || {}, result);
+        notifyService(
+          getService,
+          args[0],
+          args[1],
+          {...(args[2] || {}), source: "killmail-enqueue"},
+          result,
+          duplicateEvents,
+        );
         return result;
       };
       Object.defineProperty(wrappedEnqueue, TRACKER_WRAPPED, {value: true});
@@ -164,7 +217,14 @@ function installHooks() {
     if (interop && typeof originalRecord === "function" && !originalRecord[TRACKER_WRAPPED]) {
       const wrappedRecord = function bountyDroneRecordKillmail(...args) {
         const result = originalRecord.apply(this, args);
-        notifyService(getService, args[0], args[1], args[2] || {}, result);
+        notifyService(
+          getService,
+          args[0],
+          args[1],
+          {...(args[2] || {}), source: "drone-killmail"},
+          result,
+          duplicateEvents,
+        );
         return result;
       };
       interop.recordKillmailFromDestruction = wrappedRecord;
@@ -182,8 +242,10 @@ function installHooks() {
             {
               attackerEntity: args[1] || null,
               whenMs: args[4] || Date.now(),
+              source: "drone-destruction",
             },
             null,
+            duplicateEvents,
           );
         }
         return result;
@@ -228,8 +290,10 @@ function installHooks() {
                 pilotCharacterID: creditedCharacterID || undefined,
               },
               whenMs: context.nowMs || Date.now(),
+              source: "native-bounty",
             },
             {killID: 0, nativeBountyEligible: true, characterID: creditedCharacterID},
+            duplicateEvents,
           );
         }
         return result;
