@@ -4,19 +4,21 @@
 
 # Auto Shop Repair
 
-Auto Shop Repair automatically repairs the active ship and its fitted modules
-after a successful docking at an NPC station. It uses EveJS's normal station
-repair pricing and settlement, including the regular ISK check.
+Auto Shop Repair automatically repairs the active ship, its fitted modules,
+and drones stored in its drone bay after a successful docking at an NPC
+station. It uses EveJS's normal station repair pricing and settlement,
+including the regular ISK check.
 
 ## Features
 
-- Repairs the active ship and fitted modules after docking at an NPC station.
+- Repairs the active ship, fitted modules, and active ship drone-bay drones
+  after docking at an NPC station.
 - Uses the native repair price and payment system.
 - Skips the repair without charging when the character lacks sufficient ISK.
 - Enables the feature per character by default.
 - Provides an in-game Mods menu toggle and completion or failure notices.
 - Applies only to future dockings; it does not repair ships already in station.
-- Does not repair cargo, drones, charges, or ships in structures.
+- Does not repair cargo, charges, or ships in structures.
 
 ## Requirements
 

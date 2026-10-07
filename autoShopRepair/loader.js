@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "autoshoprepair";
-const MOD_VERSION = "0.1.2";
+const MOD_VERSION = "0.1.3";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const TRANSITIONS_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}transitions.js`;
 const INSTALLED = Symbol.for("evejs.autoShopRepair.loaderInstalled");

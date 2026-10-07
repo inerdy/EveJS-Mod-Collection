@@ -18,6 +18,9 @@ const store = createStore(fsPath.join(database._dataDir, "autoShopRepair", "stat
 const lanes = new Map();
 let chatHub = null;
 
+const CATEGORY_DRONE = 18;
+const DRONE_BAY_FLAG = itemStore.ITEM_FLAGS && itemStore.ITEM_FLAGS.DRONE_BAY;
+
 function positive(value) {
   const number = Math.trunc(Number(value) || 0);
   return number > 0 ? number : 0;
@@ -51,6 +54,12 @@ function syncChanges(session, changes) {
       );
     }
   }
+}
+
+function getActiveShipDroneItems(characterID, shipID) {
+  if (!DRONE_BAY_FLAG) return [];
+  return itemStore.listContainerItems(characterID, shipID, DRONE_BAY_FLAG)
+    .filter((item) => positive(item && item.categoryID) === CATEGORY_DRONE);
 }
 
 class AutoShopRepairService extends BaseService {
@@ -102,7 +111,12 @@ class AutoShopRepairService extends BaseService {
     }
 
     const modules = liveFittingState.getFittedModuleItems(characterID, shipID);
-    const references = [shipID, ...modules.map((item) => positive(item && item.itemID))]
+    const drones = getActiveShipDroneItems(characterID, shipID);
+    const references = [
+      shipID,
+      ...modules.map((item) => positive(item && item.itemID)),
+      ...drones.map((item) => positive(item && item.itemID)),
+    ]
       .filter((itemID, index, all) => itemID > 0 && all.indexOf(itemID) === index);
     const result = await repairRuntime.repairItemsInStation(session, references);
     if (!result || result.success !== true) {

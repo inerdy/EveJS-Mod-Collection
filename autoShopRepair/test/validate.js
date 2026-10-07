@@ -7,6 +7,9 @@ const state = require(path.join(__dirname, "..", "lib", "state"));
 const loader = require(path.join(__dirname, "..", "loader"));
 
 const modRoot = path.resolve(__dirname, "..");
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(modRoot, "evejs-launcher.mod.json"), "utf8"),
+);
 const loaderSource = fs.readFileSync(path.join(modRoot, "loader.js"), "utf8");
 const serviceSource = fs.readFileSync(
   path.join(modRoot, "lib", "autoShopRepairService.js"),
@@ -18,7 +21,9 @@ const clientSource = fs.readFileSync(
 );
 
 assert.equal(loader.id, "autoshoprepair");
+assert.equal(loader.version, "0.1.3");
 assert.equal(loader.active, true);
+assert.equal(manifest.version, "0.1.3");
 assert.equal(state.normalizeCharacterState({}).enabled, true);
 assert.equal(state.normalizeCharacterState({enabled: false}).enabled, false);
 assert.deepEqual(state.normalizeState({characters: {"42": {enabled: false}}}), {
@@ -27,6 +32,8 @@ assert.deepEqual(state.normalizeState({characters: {"42": {enabled: false}}}), {
 });
 assert.match(loaderSource, /onDocked\(args\[0\], args\[1\]\)/u);
 assert.match(serviceSource, /getActiveShipItem\(characterID\)/u);
+assert.match(serviceSource, /listContainerItems\(characterID,\s*shipID,\s*DRONE_BAY_FLAG\)/u);
+assert.match(serviceSource, /CATEGORY_DRONE/u);
 assert.match(
   serviceSource,
   /_repairAfterDocking\(\s*session,\s*characterID,\s*normalizedStationID,?\s*\)/u,
