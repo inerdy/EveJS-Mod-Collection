@@ -11,7 +11,7 @@ const manifest = JSON.parse(
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "temppatches");
-assert.equal(manifest.version, "0.1.2");
+assert.equal(manifest.version, "0.1.4");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -23,6 +23,7 @@ assert.equal(tempPatches.id, "temppatches");
 
 const {
   ensureSceneMaterializedSiteMarker,
+  DUNGEON_DIAGNOSTICS_ENABLED,
   CLEARED_ANOMALY_COOLDOWN_MS,
   getAnomalyCooldownDeadline,
   isCooldownEligibleAnomaly,
@@ -31,9 +32,11 @@ const {
   matchedDungeonInstanceCount,
   patchInvBrokerService,
   patchDungeonService,
+  patchDungeonTrackingRuntime,
   shouldReconcile,
 } =
   tempPatches._testing;
+assert.equal(DUNGEON_DIAGNOSTICS_ENABLED, true);
 assert.equal(CLEARED_ANOMALY_COOLDOWN_MS, 30 * 60 * 1000);
 const completedAnomaly = {
   instanceID: 9001,
@@ -96,6 +99,50 @@ const patchedResult = fakeService.handleEncounterEntityDestroyed(
 );
 assert.equal(originalHandleCalls, 1);
 assert.deepEqual(patchedResult.data.matchedInstanceIDs, [8001]);
+
+const trackingSession = {shipID: 9101};
+const trackingShip = {dungeonCurrentDungeonID: 2048};
+const trackingNotifications = [];
+const fakeTrackingScene = {
+  sessions: [trackingSession],
+  getShipEntityForSession() {
+    return trackingShip;
+  },
+};
+const fakeTrackingRuntime = {
+  notifyDungeonCompletedForScene(sceneForCompletion, instance) {
+    for (const session of sceneForCompletion.sessions) {
+      const ship = sceneForCompletion.getShipEntityForSession(session);
+      ship.dungeonCompletedNotifiedInstanceID = instance.instanceID;
+    }
+    return 1;
+  },
+  resolveDungeonID(instance) {
+    return instance.sourceDungeonID;
+  },
+  sendExitingDungeonNotification(session, dungeonID) {
+    trackingNotifications.push({session, dungeonID});
+    return true;
+  },
+};
+assert.equal(patchDungeonTrackingRuntime(fakeTrackingRuntime), true);
+assert.equal(
+  fakeTrackingRuntime.notifyDungeonCompletedForScene(
+    fakeTrackingScene,
+    {instanceID: 9102, sourceDungeonID: 2048},
+  ),
+  1,
+);
+assert.equal(trackingNotifications.length, 1);
+assert.equal(trackingNotifications[0].dungeonID, 2048);
+assert.equal(
+  fakeTrackingRuntime.notifyDungeonCompletedForScene(
+    fakeTrackingScene,
+    {instanceID: 9102, sourceDungeonID: 2048},
+  ),
+  1,
+);
+assert.equal(trackingNotifications.length, 1);
 
 const fakeTerminalInstances = [completedAnomaly];
 const fakeDungeonRuntime = {

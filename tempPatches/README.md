@@ -4,6 +4,10 @@
 After a dungeon NPC is destroyed, it gives EveJS's encounter tracker a few
 short reconciliation passes so `wave_cleared` encounters can start.
 
+When the server marks a dungeon complete, it also sends the normal dungeon-exit
+notification so the client's wave panel is cleared instead of remaining on a
+stale wave count.
+
 It also replaces EveJS's malformed generic `TargetTooFar` response for cargo
 containers with a readable range message. The native container access range is
 not changed.
@@ -17,5 +21,8 @@ installation or replacement. It does not change dungeon content packs and does
 not support Docker.
 
 The patch only schedules reconciliation for dungeon-scoped encounter entities.
-Normal open-space NPC destruction is unaffected. If a dungeon run was already
-stuck before the mod was installed, leave and re-enter the site before testing.
+Normal open-space NPC destruction is unaffected. Dungeon diagnostics are enabled
+by default and record encounter state before and after each reconciliation pass
+in the server log. Set `EVEJS_TEMP_PATCHES_DIAGNOSTICS=0` in the server
+environment to silence them after testing. If a dungeon run was already stuck
+before the mod was installed, leave and re-enter the site before testing.
