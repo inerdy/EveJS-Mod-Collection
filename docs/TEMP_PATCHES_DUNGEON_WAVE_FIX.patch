@@ -1,0 +1,520 @@
+diff --git a/tempPatches/loader.js b/tempPatches/loader.js
+index ba7be91..ae9a321 100644
+--- a/tempPatches/loader.js
++++ b/tempPatches/loader.js
+@@ -4,7 +4,7 @@ const Module = require("node:module");
+ const path = require("node:path");
+ 
+ const MOD_ID = "temppatches";
+-const MOD_VERSION = "0.1.2";
++const MOD_VERSION = "0.1.4";
+ const INSTALL_FLAG = Symbol.for("evejs.tempPatches.loaderInstalled");
+ const LOAD_HOOK_FLAG = Symbol.for("evejs.tempPatches.loadHookInstalled");
+ const PATCH_FLAG = Symbol.for("evejs.tempPatches.dungeonWavePatchInstalled");
+@@ -15,6 +15,9 @@ const UNIVERSE_RUNTIME_PATCH_FLAG = Symbol.for(
+ const SITE_ADAPTER_PATCH_FLAG = Symbol.for(
+   "evejs.tempPatches.siteAdapterPatchInstalled",
+ );
++const DUNGEON_TRACKING_PATCH_FLAG = Symbol.for(
++  "evejs.tempPatches.dungeonTrackingPatchInstalled",
++);
+ const SIGNATURE_RUNTIME_PATCH_FLAG = Symbol.for(
+   "evejs.tempPatches.signatureRuntimePatchInstalled",
+ );
+@@ -68,6 +71,16 @@ const DUNGEON_SITE_ADAPTER_PATH = path.resolve(
+   "dungeon",
+   "dungeonSiteAdapter.js",
+ );
++const DUNGEON_TRACKING_RUNTIME_PATH = path.resolve(
++  __dirname,
++  "..",
++  "..",
++  "server",
++  "src",
++  "services",
++  "dungeon",
++  "dungeonTrackingRuntime.js",
++);
+ const SIGNATURE_RUNTIME_PATH = path.resolve(
+   __dirname,
+   "..",
+@@ -82,6 +95,9 @@ const SIGNATURE_RUNTIME_PATH = path.resolve(
+ const RECONCILE_DELAYS_MS = Object.freeze([0, 75, 300]);
+ const DEFAULT_CONTAINER_RANGE_METERS = 2_500;
+ const CLEARED_ANOMALY_COOLDOWN_MS = 30 * 60 * 1000;
++const DUNGEON_DIAGNOSTICS_ENABLED = String(
++  process.env.EVEJS_TEMP_PATCHES_DIAGNOSTICS || "1",
++).trim() !== "0";
+ 
+ function log(message) {
+   console.log(`[${MOD_ID}] ${message}`);
+@@ -265,6 +281,103 @@ function resolveNowMs(scene, options = {}) {
+   return Date.now();
+ }
+ 
++function resolveDungeonInstanceIDs(entityOrID, result = null) {
++  const candidates = [];
++  if (entityOrID && typeof entityOrID === "object") {
++    candidates.push(
++      entityOrID.dungeonSiteInstanceID,
++      entityOrID.dungeonInstanceID,
++      entityOrID.instanceID,
++    );
++  }
++  const matchedInstanceIDs = result && result.data && result.data.matchedInstanceIDs;
++  if (Array.isArray(matchedInstanceIDs)) {
++    candidates.push(...matchedInstanceIDs);
++  }
++  return [...new Set(candidates.map((entry) => toPositiveInt(entry)).filter((entry) => entry > 0))];
++}
++
++function summarizeDungeonInstance(instance) {
++  if (!instance) {
++    return null;
++  }
++  const spawnState = instance.spawnState && typeof instance.spawnState === "object"
++    ? instance.spawnState
++    : {};
++  const encounterStates = spawnState.encounterStatesByKey &&
++    typeof spawnState.encounterStatesByKey === "object"
++    ? spawnState.encounterStatesByKey
++    : {};
++  const populationHints = spawnState.populationHints &&
++    typeof spawnState.populationHints === "object"
++    ? spawnState.populationHints
++    : {};
++  const plans = Array.isArray(populationHints.encounters)
++    ? populationHints.encounters
++    : populationHints.encounter && typeof populationHints.encounter === "object"
++      ? [populationHints.encounter]
++      : [];
++  return {
++    instanceID: toPositiveInt(instance.instanceID),
++    solarSystemID: toPositiveInt(instance.solarSystemID),
++    lifecycleState: normalizeLowerText(instance.lifecycleState, ""),
++    lifecycleReason: normalizeLowerText(instance.lifecycleReason, ""),
++    plannedWaves: plans.map((plan, index) => ({
++      key: String(plan && plan.key || `encounter_${index + 1}`),
++      wave: Math.max(1, Math.trunc(Number(plan && plan.waveIndex) || index + 1)),
++      trigger: String(plan && plan.trigger || "on_load"),
++      prerequisiteKey: String(plan && plan.prerequisiteKey || "") || null,
++    })),
++    encounterStates: Object.entries(encounterStates).map(([key, state]) => ({
++      key,
++      wave: Math.max(1, Math.trunc(Number(state && state.waveIndex) || 1)),
++      trigger: String(state && state.trigger || ""),
++      prerequisiteKey: String(state && state.prerequisiteKey || "") || null,
++      spawned: toPositiveInt(state && state.spawnedAtMs) > 0,
++      completed: toPositiveInt(state && state.completedAtMs) > 0,
++      remainingEntityIDs: Array.isArray(state && state.remainingEntityIDs)
++        ? state.remainingEntityIDs.map((entry) => toPositiveInt(entry)).filter((entry) => entry > 0)
++        : [],
++    })),
++  };
++}
++
++function logDungeonDiagnostics(label, payload = {}) {
++  if (!DUNGEON_DIAGNOSTICS_ENABLED) {
++    return;
++  }
++  log(`dungeon diagnostic ${label} ${JSON.stringify(payload)}`);
++}
++
++function logDungeonInstanceDiagnostics(label, instanceIDs, extra = {}) {
++  if (!DUNGEON_DIAGNOSTICS_ENABLED) {
++    return;
++  }
++  let runtime = null;
++  try {
++    runtime = require(DUNGEON_RUNTIME_PATH);
++  } catch (error) {
++    logDungeonDiagnostics(label, {
++      ...extra,
++      instanceIDs,
++      runtimeError: error.message,
++    });
++    return;
++  }
++  const instances = instanceIDs
++    .map((instanceID) => summarizeDungeonInstance(
++      runtime && typeof runtime.getInstance === "function"
++        ? runtime.getInstance(instanceID)
++        : null,
++    ))
++    .filter(Boolean);
++  logDungeonDiagnostics(label, {
++    ...extra,
++    instanceIDs,
++    instances,
++  });
++}
++
+ function ensureSceneMaterializedSiteMarker(scene, entityOrID) {
+   if (!scene || !entityOrID || typeof entityOrID !== "object") {
+     return false;
+@@ -287,33 +400,58 @@ function ensureSceneMaterializedSiteMarker(scene, entityOrID) {
+   return true;
+ }
+ 
+-function scheduleWaveReconciliation(service, scene, entityOrID, options = {}) {
++function scheduleWaveReconciliation(service, scene, entityOrID, options = {}, destructionResult = null) {
+   if (!scene || typeof service.tickSceneSiteBehaviors !== "function") {
+     return false;
+   }
+ 
+   ensureSceneMaterializedSiteMarker(scene, entityOrID);
++  const instanceIDs = resolveDungeonInstanceIDs(entityOrID, destructionResult);
+ 
+   const pendingByScene = scheduleWaveReconciliation.pendingByScene;
+   if (pendingByScene.has(scene)) {
++    logDungeonInstanceDiagnostics("reconcile-coalesced", instanceIDs, {
++      dungeonSiteID: toPositiveInt(entityOrID && entityOrID.dungeonSiteID),
++      dungeonEncounterKey: String(entityOrID && entityOrID.dungeonEncounterKey || "") || null,
++    });
+     return false;
+   }
+ 
+   const state = {attempt: 0, timer: null};
+   pendingByScene.set(scene, state);
++  logDungeonDiagnostics("reconcile-scheduled", {
++    instanceIDs,
++    delaysMs: RECONCILE_DELAYS_MS,
++  });
+ 
+   const run = () => {
++    const attempt = state.attempt + 1;
++    const nowMs = resolveNowMs(scene, options);
++    logDungeonInstanceDiagnostics("reconcile-before", instanceIDs, {
++      attempt,
++      nowMs,
++    });
+     try {
+       const progression = service.tickSceneSiteBehaviors(scene, {
+-        nowMs: resolveNowMs(scene, options),
++        nowMs,
+         session: options.session || null,
+       });
+       const spawned = toPositiveInt(progression && progression.encountersSpawned);
+-      if (spawned > 0) {
+-        log(`dungeon wave reconciliation spawned ${spawned} encounter(s)`);
+-      }
++      logDungeonInstanceDiagnostics("reconcile-after", instanceIDs, {
++        attempt,
++        nowMs,
++        encountersSpawned: spawned,
++        encounterCompletions: toPositiveInt(progression && progression.encounterCompletions),
++        gatesUnlocked: toPositiveInt(progression && progression.gatesUnlocked),
++      });
++      if (spawned > 0) log(`dungeon wave reconciliation spawned ${spawned} encounter(s)`);
+     } catch (error) {
+       log(`dungeon wave reconciliation failed: ${error.message}`);
++      logDungeonInstanceDiagnostics("reconcile-error", instanceIDs, {
++        attempt,
++        nowMs,
++        error: error.message,
++      });
+     }
+ 
+     state.attempt += 1;
+@@ -354,8 +492,34 @@ function patchDungeonService(service) {
+     options = {},
+   ) {
+     const result = originalHandle.call(this, scene, entityOrID, options);
+-    if (shouldReconcile(entityOrID, result)) {
+-      scheduleWaveReconciliation(this, scene, entityOrID, options);
++    const instanceIDs = resolveDungeonInstanceIDs(entityOrID, result);
++    if (DUNGEON_DIAGNOSTICS_ENABLED && (isDungeonScopedEntity(entityOrID) || instanceIDs.length > 0)) {
++      logDungeonInstanceDiagnostics("entity-destroyed", instanceIDs, {
++        entityID: toPositiveInt(entityOrID && (
++          entityOrID.itemID || entityOrID.entityID || entityOrID.id
++        )),
++        dungeonSiteID: toPositiveInt(entityOrID && entityOrID.dungeonSiteID),
++        dungeonEncounterKey: String(entityOrID && entityOrID.dungeonEncounterKey || "") || null,
++        matchedInstanceIDs: Array.isArray(result && result.data && result.data.matchedInstanceIDs)
++          ? result.data.matchedInstanceIDs
++          : [],
++        success: result && result.success === true,
++      });
++    }
++    const needsReconciliation = shouldReconcile(entityOrID, result);
++    if (needsReconciliation) {
++      scheduleWaveReconciliation(this, scene, entityOrID, options, result);
++    } else if (DUNGEON_DIAGNOSTICS_ENABLED && isDungeonScopedEntity(entityOrID)) {
++      logDungeonDiagnostics("reconcile-not-scheduled", {
++        entityID: toPositiveInt(entityOrID && (
++          entityOrID.itemID || entityOrID.entityID || entityOrID.id
++        )),
++        dungeonSiteID: toPositiveInt(entityOrID && entityOrID.dungeonSiteID),
++        dungeonEncounterKey: String(entityOrID && entityOrID.dungeonEncounterKey || "") || null,
++        matchedInstanceIDs: Array.isArray(result && result.data && result.data.matchedInstanceIDs)
++          ? result.data.matchedInstanceIDs
++          : [],
++      });
+     }
+     return result;
+   };
+@@ -370,6 +534,140 @@ function patchDungeonService(service) {
+   return true;
+ }
+ 
++function listSceneSessions(scene) {
++  if (!scene || !scene.sessions) {
++    return [];
++  }
++  if (scene.sessions instanceof Map) {
++    return Array.from(scene.sessions.values());
++  }
++  if (Array.isArray(scene.sessions)) {
++    return scene.sessions;
++  }
++  if (typeof scene.sessions === "object") {
++    return Object.values(scene.sessions);
++  }
++  return [];
++}
++
++function resolveTrackingShipEntity(scene, session) {
++  if (!scene || !session) {
++    return null;
++  }
++  if (typeof scene.getShipEntityForSession === "function") {
++    return scene.getShipEntityForSession(session);
++  }
++  const shipID = toPositiveInt(session.shipID || session.shipid);
++  return shipID > 0 && typeof scene.getEntityByID === "function"
++    ? scene.getEntityByID(shipID)
++    : null;
++}
++
++function resolveTrackingInstanceID(instanceOrID) {
++  return typeof instanceOrID === "object" && instanceOrID
++    ? toPositiveInt(instanceOrID.instanceID)
++    : toPositiveInt(instanceOrID);
++}
++
++function resolveTrackingDungeonID(service, instanceOrID, shipEntity) {
++  const instance = typeof instanceOrID === "object" && instanceOrID
++    ? instanceOrID
++    : null;
++  const resolvedInstance = instance || (() => {
++    try {
++      const runtime = require(DUNGEON_RUNTIME_PATH);
++      return runtime && typeof runtime.getInstance === "function"
++        ? runtime.getInstance(toPositiveInt(instanceOrID))
++        : null;
++    } catch (_error) {
++      return null;
++    }
++  })();
++  const resolvedByService = resolvedInstance &&
++    typeof service.resolveDungeonID === "function"
++    ? service.resolveDungeonID(resolvedInstance)
++    : 0;
++  return Math.max(
++    toPositiveInt(resolvedByService),
++    toPositiveInt(shipEntity && shipEntity.dungeonCurrentDungeonID),
++  );
++}
++
++function patchDungeonTrackingRuntime(service) {
++  if (!service || service[DUNGEON_TRACKING_PATCH_FLAG]) {
++    return false;
++  }
++  if (
++    typeof service.notifyDungeonCompletedForScene !== "function" ||
++    typeof service.sendExitingDungeonNotification !== "function"
++  ) {
++    throw new Error("Dungeon tracking runtime does not expose completion notification methods");
++  }
++
++  const originalNotifyDungeonCompletedForScene = service.notifyDungeonCompletedForScene;
++  service.notifyDungeonCompletedForScene = function tempPatchesNotifyDungeonCompletedForScene(
++    scene,
++    instanceOrID,
++    options = {},
++  ) {
++    const instanceID = resolveTrackingInstanceID(instanceOrID);
++    const sessions = listSceneSessions(scene);
++    const priorCompletionState = new Map(
++      sessions.map((session) => {
++        const shipEntity = resolveTrackingShipEntity(scene, session);
++        return [
++          session,
++          toPositiveInt(shipEntity && shipEntity.dungeonCompletedNotifiedInstanceID),
++        ];
++      }),
++    );
++
++    const notifiedCount = originalNotifyDungeonCompletedForScene.call(
++      this,
++      scene,
++      instanceOrID,
++      options,
++    );
++
++    if (instanceID <= 0 || notifiedCount <= 0) {
++      return notifiedCount;
++    }
++
++    for (const session of sessions) {
++      const shipEntity = resolveTrackingShipEntity(scene, session);
++      const completionState = toPositiveInt(
++        shipEntity && shipEntity.dungeonCompletedNotifiedInstanceID,
++      );
++      const wasAlreadyNotified = priorCompletionState.get(session) === instanceID;
++      if (completionState !== instanceID || (wasAlreadyNotified && options.forceNotify !== true)) {
++        continue;
++      }
++
++      const dungeonID = resolveTrackingDungeonID(this, instanceOrID, shipEntity);
++      if (dungeonID <= 0) {
++        continue;
++      }
++      try {
++        if (this.sendExitingDungeonNotification(session, dungeonID)) {
++          log(`dungeon completion UI reset sent for instance ${instanceID}`);
++        }
++      } catch (error) {
++        log(`dungeon completion UI reset failed for instance ${instanceID}: ${error.message}`);
++      }
++    }
++    return notifiedCount;
++  };
++
++  Object.defineProperty(service, DUNGEON_TRACKING_PATCH_FLAG, {
++    configurable: false,
++    enumerable: false,
++    value: true,
++    writable: false,
++  });
++  log("dungeon completion UI reset patch installed");
++  return true;
++}
++
+ function patchInvBrokerService(service) {
+   const prototype = service && service.prototype;
+   if (!prototype || prototype[INV_BROKER_PATCH_FLAG]) {
+@@ -573,6 +871,8 @@ function applyRuntimePatch(resolved, exported) {
+     patchDungeonUniverseRuntime(exported);
+   } else if (resolvedPath === DUNGEON_SITE_ADAPTER_PATH) {
+     patchDungeonSiteAdapter(exported);
++  } else if (resolvedPath === DUNGEON_TRACKING_RUNTIME_PATH) {
++    patchDungeonTrackingRuntime(exported);
+   } else if (resolvedPath === SIGNATURE_RUNTIME_PATH) {
+     patchSignatureRuntime(exported);
+   }
+@@ -604,6 +904,13 @@ function installLazyRuntimeHook() {
+   if (cachedSiteAdapter) {
+     applyRuntimePatch(DUNGEON_SITE_ADAPTER_PATH, cachedSiteAdapter.exports);
+   }
++  const cachedDungeonTrackingRuntime = Module._cache[DUNGEON_TRACKING_RUNTIME_PATH];
++  if (cachedDungeonTrackingRuntime) {
++    applyRuntimePatch(
++      DUNGEON_TRACKING_RUNTIME_PATH,
++      cachedDungeonTrackingRuntime.exports,
++    );
++  }
+   const cachedSignatureRuntime = Module._cache[SIGNATURE_RUNTIME_PATH];
+   if (cachedSignatureRuntime) {
+     applyRuntimePatch(SIGNATURE_RUNTIME_PATH, cachedSignatureRuntime.exports);
+@@ -640,7 +947,9 @@ module.exports = Object.freeze({
+     DUNGEON_SERVICE_PATH,
+     INV_BROKER_SERVICE_PATH,
+     RECONCILE_DELAYS_MS,
++    DUNGEON_DIAGNOSTICS_ENABLED,
+     CLEARED_ANOMALY_COOLDOWN_MS,
++    DUNGEON_TRACKING_RUNTIME_PATH,
+     getAnomalyCooldownDeadline,
+     isCooldownEligibleAnomaly,
+     findCooldownAnomalyForSite,
+@@ -655,5 +964,6 @@ module.exports = Object.freeze({
+     ensureSceneMaterializedSiteMarker,
+     shouldReconcile,
+     patchDungeonService,
++    patchDungeonTrackingRuntime,
+   }),
+ });
+diff --git a/tempPatches/test/validate.js b/tempPatches/test/validate.js
+index 62f17f3..5b6470e 100644
+--- a/tempPatches/test/validate.js
++++ b/tempPatches/test/validate.js
+@@ -11,7 +11,7 @@ const manifest = JSON.parse(
+ 
+ assert.equal(manifest.schemaVersion, 3);
+ assert.equal(manifest.id, "temppatches");
+-assert.equal(manifest.version, "0.1.2");
++assert.equal(manifest.version, "0.1.4");
+ assert.deepEqual(manifest.supportedBackends, ["native"]);
+ assert.equal(manifest.activation.strategy, "loader_rename");
+ assert.equal(manifest.restart, "game_server");
+@@ -23,6 +23,7 @@ assert.equal(tempPatches.id, "temppatches");
+ 
+ const {
+   ensureSceneMaterializedSiteMarker,
++  DUNGEON_DIAGNOSTICS_ENABLED,
+   CLEARED_ANOMALY_COOLDOWN_MS,
+   getAnomalyCooldownDeadline,
+   isCooldownEligibleAnomaly,
+@@ -31,9 +32,11 @@ const {
+   matchedDungeonInstanceCount,
+   patchInvBrokerService,
+   patchDungeonService,
++  patchDungeonTrackingRuntime,
+   shouldReconcile,
+ } =
+   tempPatches._testing;
++assert.equal(DUNGEON_DIAGNOSTICS_ENABLED, true);
+ assert.equal(CLEARED_ANOMALY_COOLDOWN_MS, 30 * 60 * 1000);
+ const completedAnomaly = {
+   instanceID: 9001,
+@@ -97,6 +100,50 @@ const patchedResult = fakeService.handleEncounterEntityDestroyed(
+ assert.equal(originalHandleCalls, 1);
+ assert.deepEqual(patchedResult.data.matchedInstanceIDs, [8001]);
+ 
++const trackingSession = {shipID: 9101};
++const trackingShip = {dungeonCurrentDungeonID: 2048};
++const trackingNotifications = [];
++const fakeTrackingScene = {
++  sessions: [trackingSession],
++  getShipEntityForSession() {
++    return trackingShip;
++  },
++};
++const fakeTrackingRuntime = {
++  notifyDungeonCompletedForScene(sceneForCompletion, instance) {
++    for (const session of sceneForCompletion.sessions) {
++      const ship = sceneForCompletion.getShipEntityForSession(session);
++      ship.dungeonCompletedNotifiedInstanceID = instance.instanceID;
++    }
++    return 1;
++  },
++  resolveDungeonID(instance) {
++    return instance.sourceDungeonID;
++  },
++  sendExitingDungeonNotification(session, dungeonID) {
++    trackingNotifications.push({session, dungeonID});
++    return true;
++  },
++};
++assert.equal(patchDungeonTrackingRuntime(fakeTrackingRuntime), true);
++assert.equal(
++  fakeTrackingRuntime.notifyDungeonCompletedForScene(
++    fakeTrackingScene,
++    {instanceID: 9102, sourceDungeonID: 2048},
++  ),
++  1,
++);
++assert.equal(trackingNotifications.length, 1);
++assert.equal(trackingNotifications[0].dungeonID, 2048);
++assert.equal(
++  fakeTrackingRuntime.notifyDungeonCompletedForScene(
++    fakeTrackingScene,
++    {instanceID: 9102, sourceDungeonID: 2048},
++  ),
++  1,
++);
++assert.equal(trackingNotifications.length, 1);
++
+ const fakeTerminalInstances = [completedAnomaly];
+ const fakeDungeonRuntime = {
+   listUniversePersistentTerminalInstances() {

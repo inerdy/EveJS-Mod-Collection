@@ -39,6 +39,19 @@ mods/tempPatches/README.md
 mods/tempPatches/evejs-launcher.mod.json
 ```
 
+The machine-readable mod patch is:
+
+```text
+docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.patch
+```
+
+It is a Git diff from collection commit `d6f3303` (`tempPatches` `0.1.2`) to
+commit `2d8e4bf` (`tempPatches` `0.1.4`). It updates the loader and validation
+test for the reconciliation diagnostics and completion UI reset. It is a patch
+to the loader mod, not a direct patch against EveJS core source. The original
+developers can use it as an exact reference for the runtime hooks and then
+implement the equivalent behavior in the native services.
+
 The loader patches these EveJS services at runtime:
 
 ```text
