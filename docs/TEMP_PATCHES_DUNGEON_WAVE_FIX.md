@@ -52,6 +52,24 @@ to the loader mod, not a direct patch against EveJS core source. The original
 developers can use it as an exact reference for the runtime hooks and then
 implement the equivalent behavior in the native services.
 
+For the notification issue alone, use the smaller upstream-oriented patch:
+
+```text
+docs/UPSTREAM_DUNGEON_NOTIFICATION_FIX.patch
+```
+
+That patch targets the EveJS root and changes only
+`server/src/services/dungeon/dungeonTrackingRuntime.js`. From the EveJS root,
+it can be applied with:
+
+```powershell
+git apply mods/docs/UPSTREAM_DUNGEON_NOTIFICATION_FIX.patch
+```
+
+It preserves `OnDungeonCompleted` and sends the existing `OnExitingDungeon`
+notification immediately after successful completion so the client clears its
+stale wave overlay.
+
 The loader patches these EveJS services at runtime:
 
 ```text

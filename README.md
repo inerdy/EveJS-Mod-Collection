@@ -88,3 +88,5 @@ Developer notes for the temporary dungeon wave fix are available in
 [docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.md](docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.md).
 The corresponding machine-readable diff is in
 [docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.patch](docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.patch).
+The notification-only upstream patch is in
+[docs/UPSTREAM_DUNGEON_NOTIFICATION_FIX.patch](docs/UPSTREAM_DUNGEON_NOTIFICATION_FIX.patch).

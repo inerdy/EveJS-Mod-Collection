@@ -1,0 +1,18 @@
+diff --git a/server/src/services/dungeon/dungeonTrackingRuntime.js b/server/src/services/dungeon/dungeonTrackingRuntime.js
+--- a/server/src/services/dungeon/dungeonTrackingRuntime.js
++++ b/server/src/services/dungeon/dungeonTrackingRuntime.js
+@@ -480,9 +480,13 @@ function completeCurrentDungeonForSession(scene, session, instanceOrID, options = {}) {
+     resolveDungeonID(current.instance),
+   );
+   if (!sendDungeonCompletedNotification(session, dungeonID)) {
+     return false;
+   }
++  // OnDungeonCompleted updates completion state, but the client can leave the
++  // dungeon wave overlay visible. Send the existing reset notification after
++  // completion so the client clears its stale wave panel.
++  sendExitingDungeonNotification(session, dungeonID);
+   current.shipEntity.dungeonCompletedNotifiedInstanceID = instanceID;
+   current.shipEntity.dungeonCurrentUpdatedAtMs = Math.max(0, toInt(options.nowMs, Date.now()));
+   return true;
+ }
+
