@@ -83,3 +83,6 @@ its own version and compatibility manifest.
 For a complete description of a specific package, open its `README.md`. The
 GitHub wiki will later provide a central feature reference and installation
 notes for every mod.
+
+Developer notes for the temporary dungeon wave fix are available in
+[docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.md](docs/TEMP_PATCHES_DUNGEON_WAVE_FIX.md).
