@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "shipfuelbays",
   "displayName": "Ship Fuel Bays",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Adds dedicated fuel-bay inventory capacity to ships that do not have a native fuel bay.",
   "kind": "loader",
   "supportedBackends": ["native"],

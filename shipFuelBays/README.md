@@ -15,11 +15,12 @@ client window. Those behaviors remain separate, including in the
 
 ## Features
 
-- Adds the native fuel-bay attribute to eligible ship resource states.
+- Adds the native fuel-bay attribute to eligible ship resource and dogma states,
+  so the client can show a `Fuel Bay` entry beneath the ship in Inventory.
 - Uses the hull's default cargo capacity in cubic meters.
 - Preserves the native fuel-bay capacity of ships that already have one.
 - Uses EveJS's existing dedicated fuel-bay inventory flag.
-- Patches both cached and future-loaded fitting modules.
+- Patches both cached and future-loaded fitting and dogma modules.
 - Keeps the change server-side and does not edit EveJS core files.
 
 ## Requirements
@@ -45,7 +46,8 @@ and enabling or disabling the mod.
 
 No in-game setup is required. Once the Game server restarts, a ship without a
 native fuel bay receives a fuel bay whose capacity matches its base cargo
-capacity. A hull with a native fuel bay keeps its existing capacity.
+capacity. The client shows it as a `Fuel Bay` branch under the ship in
+Inventory. A hull with a native fuel bay keeps its existing capacity.
 
 The capacity is measured in cubic meters. The number of fuel units that fit
 depends on the volume of the fuel item being stored.

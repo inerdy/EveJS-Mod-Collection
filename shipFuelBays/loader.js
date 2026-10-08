@@ -7,7 +7,7 @@ const {loadConfig} = require("./lib/config");
 const {ShipFuelBaysService} = require("./lib/shipFuelBaysService");
 
 const MOD_ID = "shipfuelbays";
-const MOD_VERSION = "0.1.0";
+const MOD_VERSION = "0.1.1";
 const LIVE_FITTING_SUFFIX = path.join(
   "server",
   "src",
@@ -22,6 +22,13 @@ const FITTING_RUNTIME_SUFFIX = path.join(
   "fitting",
   "fittingRuntime.js",
 );
+const DOGMA_SERVICE_SUFFIX = path.join(
+  "server",
+  "src",
+  "services",
+  "dogma",
+  "dogmaService.js",
+);
 const SHIP_WARP_FUEL_SERVICE_SUFFIX = path.join(
   "mods",
   "shipWarpFuel",
@@ -31,6 +38,7 @@ const SHIP_WARP_FUEL_SERVICE_SUFFIX = path.join(
 const INSTALLED = Symbol.for("evejs.shipFuelBays.loaderInstalled");
 const LIVE_WRAPPED = Symbol.for("evejs.shipFuelBays.liveWrapped");
 const FITTING_WRAPPED = Symbol.for("evejs.shipFuelBays.fittingWrapped");
+const DOGMA_WRAPPED = Symbol.for("evejs.shipFuelBays.dogmaWrapped");
 const WARP_FUEL_WRAPPED = Symbol.for("evejs.shipFuelBays.warpFuelWrapped");
 
 const config = loadConfig();
@@ -84,6 +92,24 @@ function wrapFittingRuntime(exported) {
   return exported;
 }
 
+function wrapDogmaService(exported) {
+  const prototype = exported && exported.prototype;
+  if (!prototype || prototype[DOGMA_WRAPPED]) return exported;
+
+  const original = prototype._buildShipAttributes;
+  if (typeof original === "function") {
+    prototype._buildShipAttributes = function shipFuelBaysDogmaAttributes(...args) {
+      const attributes = original.apply(this, args);
+      return service.decorateShipAttributes(attributes, args[1]);
+    };
+  }
+  Object.defineProperty(prototype, DOGMA_WRAPPED, {
+    configurable: true,
+    value: true,
+  });
+  return exported;
+}
+
 function wrapWarpFuelService(exported) {
   const prototype = exported && exported.prototype;
   if (!prototype || prototype[WARP_FUEL_WRAPPED]) return exported;
@@ -117,6 +143,9 @@ function patchModule(filename, exported) {
   }
   if (matchesSuffix(filename, FITTING_RUNTIME_SUFFIX)) {
     return wrapFittingRuntime(exported);
+  }
+  if (matchesSuffix(filename, DOGMA_SERVICE_SUFFIX)) {
+    return wrapDogmaService(exported);
   }
   if (matchesSuffix(filename, SHIP_WARP_FUEL_SERVICE_SUFFIX)) {
     return wrapWarpFuelService(exported);
@@ -165,5 +194,6 @@ module.exports = Object.freeze({
     patchModule,
     wrapLiveFittingState,
     wrapFittingRuntime,
+    wrapDogmaService,
   },
 });

@@ -25,7 +25,7 @@ for (const file of [
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "shipfuelbays");
 assert.equal(manifest.displayName, "Ship Fuel Bays");
-assert.equal(manifest.version, "0.1.0");
+assert.equal(manifest.version, "0.1.1");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -110,6 +110,15 @@ const fakeFittingModule = {
 loader._testing.wrapFittingRuntime(fakeFittingModule);
 const wrappedSnapshot = fakeFittingModule.getShipFittingSnapshot(1, 2);
 assert.equal(wrappedSnapshot.shipAttributes[FUEL_BAY_ATTRIBUTE_ID], 150);
+
+class FakeDogmaService {
+  _buildShipAttributes(_character, shipItem) {
+    return {mass: 100};
+  }
+}
+loader._testing.wrapDogmaService(FakeDogmaService);
+const dogmaAttributes = new FakeDogmaService()._buildShipAttributes(1, merlin);
+assert.equal(dogmaAttributes[FUEL_BAY_ATTRIBUTE_ID], 150);
 
 const snapshot = {
   shipItem: merlin,

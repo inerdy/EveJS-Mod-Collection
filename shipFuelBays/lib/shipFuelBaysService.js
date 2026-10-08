@@ -186,6 +186,14 @@ class ShipFuelBaysService {
     return this._applyCapacity(resourceState, info);
   }
 
+  decorateShipAttributes(attributes, shipItem) {
+    if (!this.config.enabled || !attributes || typeof attributes !== "object") {
+      return attributes;
+    }
+
+    return this._decorateAttributes(attributes, this.getFuelBayInfo(shipItem));
+  }
+
   _decorateAttributes(attributes, info) {
     if (!attributes || typeof attributes !== "object" || !info || !info.added) {
       return attributes;
