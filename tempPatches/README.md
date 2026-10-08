@@ -12,6 +12,12 @@ It also replaces EveJS's malformed generic `TargetTooFar` response for cargo
 containers with a readable range message. The native container access range is
 not changed.
 
+It also replaces the expensive combat-anomaly cache projection with a compact
+projection built directly from EveJS's in-memory dungeon runtime state. This
+avoids cloning the full dungeon summary collection whenever the Probe Scanner
+requests combat anomalies. If the projection cannot be built, the native
+handler is used as a fallback.
+
 The cleared-anomaly respawn cooldown is provided by the separate
 `dungeonRespawnCooldown` mod. Keeping that behavior separate makes it possible
 to disable this temporary bug-fix package without changing anomaly respawn

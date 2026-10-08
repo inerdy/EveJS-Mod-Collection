@@ -4,13 +4,23 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "temppatches";
-const MOD_VERSION = "0.2.0";
+const MOD_VERSION = "0.2.1";
 const INSTALL_FLAG = Symbol.for("evejs.tempPatches.loaderInstalled");
 const LOAD_HOOK_FLAG = Symbol.for("evejs.tempPatches.loadHookInstalled");
 const PATCH_FLAG = Symbol.for("evejs.tempPatches.dungeonWavePatchInstalled");
 const INV_BROKER_PATCH_FLAG = Symbol.for("evejs.tempPatches.invBrokerPatchInstalled");
 const DUNGEON_TRACKING_PATCH_FLAG = Symbol.for(
   "evejs.tempPatches.dungeonTrackingPatchInstalled",
+);
+const DUNGEON_CACHE_MGR_SERVICE_PATH = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "server",
+  "src",
+  "services",
+  "dungeon",
+  "dungeonInstanceCacheMgrService.js",
 );
 const DUNGEON_SERVICE_PATH = path.resolve(
   __dirname,
@@ -562,6 +572,12 @@ function patchInvBrokerService(service) {
   return true;
 }
 
+const dungeonAnomalyCachePatch = require(path.join(
+  __dirname,
+  "patches",
+  "dungeonAnomalyCachePatch.js",
+));
+
 function applyRuntimePatch(resolved, exported) {
   const resolvedPath = path.resolve(resolved);
   if (resolvedPath === DUNGEON_SERVICE_PATH) {
@@ -570,6 +586,8 @@ function applyRuntimePatch(resolved, exported) {
     patchInvBrokerService(exported);
   } else if (resolvedPath === DUNGEON_TRACKING_RUNTIME_PATH) {
     patchDungeonTrackingRuntime(exported);
+  } else if (resolvedPath === DUNGEON_CACHE_MGR_SERVICE_PATH) {
+    dungeonAnomalyCachePatch.patchDungeonInstanceCacheMgrService(exported);
   }
   return exported;
 }
@@ -597,6 +615,10 @@ function installLazyRuntimeHook() {
       DUNGEON_TRACKING_RUNTIME_PATH,
       cachedDungeonTrackingRuntime.exports,
     );
+  }
+  const cachedDungeonCacheMgr = Module._cache[DUNGEON_CACHE_MGR_SERVICE_PATH];
+  if (cachedDungeonCacheMgr) {
+    applyRuntimePatch(DUNGEON_CACHE_MGR_SERVICE_PATH, cachedDungeonCacheMgr.exports);
   }
 }
 
@@ -632,6 +654,7 @@ module.exports = Object.freeze({
     RECONCILE_DELAYS_MS,
     DUNGEON_DIAGNOSTICS_ENABLED,
     DUNGEON_TRACKING_RUNTIME_PATH,
+    DUNGEON_CACHE_MGR_SERVICE_PATH,
     buildContainerOutOfRangeMessage,
     isDungeonScopedEntity,
     matchedDungeonInstanceCount,
@@ -640,5 +663,8 @@ module.exports = Object.freeze({
     shouldReconcile,
     patchDungeonService,
     patchDungeonTrackingRuntime,
+    patchDungeonInstanceCacheMgrService:
+      dungeonAnomalyCachePatch.patchDungeonInstanceCacheMgrService,
+    buildCombatProjection: dungeonAnomalyCachePatch._testing.buildCombatProjection,
   }),
 });

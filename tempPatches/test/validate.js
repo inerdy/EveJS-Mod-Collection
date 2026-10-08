@@ -11,7 +11,7 @@ const manifest = JSON.parse(
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "temppatches");
-assert.equal(manifest.version, "0.2.0");
+assert.equal(manifest.version, "0.2.1");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -30,10 +30,79 @@ const {
   patchInvBrokerService,
   patchDungeonService,
   patchDungeonTrackingRuntime,
+  patchDungeonInstanceCacheMgrService,
+  buildCombatProjection,
   shouldReconcile,
 } =
   tempPatches._testing;
 assert.equal(DUNGEON_DIAGNOSTICS_ENABLED, true);
+
+const projectionHelpers = {
+  buildList(items) { return {type: "list", items}; },
+  buildDict(entries) { return {type: "dict", entries}; },
+  buildKeyVal(entries) {
+    return {type: "object", name: "util.KeyVal", args: {type: "dict", entries}};
+  },
+};
+const combatProjection = buildCombatProjection(
+  {
+    instancesByID: {
+      "10": {
+        instanceID: 10,
+        templateID: "combat-template",
+        solarSystemID: 30000142,
+        lifecycleState: "active",
+        instanceScope: "shared",
+        siteKind: "anomaly",
+        archetypeID: 24,
+        sourceDungeonID: 9001,
+        position: {x: 1, y: 2, z: 3},
+      },
+      "11": {
+        instanceID: 11,
+        templateID: "signature-template",
+        solarSystemID: 30000142,
+        lifecycleState: "active",
+        instanceScope: "shared",
+        siteKind: "signature",
+        archetypeID: 24,
+        sourceDungeonID: 9002,
+      },
+      "12": {
+        instanceID: 12,
+        templateID: "completed-template",
+        solarSystemID: 30000142,
+        lifecycleState: "completed",
+        instanceScope: "shared",
+        siteKind: "anomaly",
+        archetypeID: 24,
+        sourceDungeonID: 9003,
+      },
+      "13": {
+        instanceID: 13,
+        templateID: "other-template",
+        solarSystemID: 30000143,
+        lifecycleState: "active",
+        instanceScope: "shared",
+        siteKind: "anomaly",
+        archetypeID: 27,
+        sourceDungeonID: 9004,
+      },
+    },
+  },
+  () => ({}),
+  projectionHelpers,
+);
+assert.deepEqual(combatProjection.counts.entries, [[30000142, 1]]);
+assert.equal(combatProjection.entries.entries.length, 1);
+assert.equal(combatProjection.entries.entries[0][1].items.length, 1);
+assert.equal(combatProjection.entries.entries[0][1].items[0].args.entries[0][1], 9001);
+
+class FakeCacheMgrService {
+  Handle_GetCombatAnomalyInstances() { return "native-instances"; }
+  Handle_GetCombatAnomaliesCount() { return "native-count"; }
+}
+assert.equal(patchDungeonInstanceCacheMgrService(FakeCacheMgrService), true);
 assert.equal(isDungeonScopedEntity({dungeonMaterializedSiteContent: true}), true);
 assert.equal(isDungeonScopedEntity({dungeonSiteInstanceID: 42}), true);
 assert.equal(isDungeonScopedEntity({nativeNpc: true}), false);
@@ -144,6 +213,7 @@ assert.match(readme, /native-only/u);
 assert.match(readme, /Docker/u);
 assert.match(readme, /game-server restart/u);
 assert.match(readme, /wave_cleared/u);
+assert.match(readme, /combat-anomaly cache projection/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {
@@ -160,6 +230,7 @@ assert.deepEqual(packageFiles.sort(), [
   "README.md",
   "evejs-launcher.mod.json",
   "loader.js",
+  "patches/dungeonAnomalyCachePatch.js",
   "test/validate.js",
 ]);
 
