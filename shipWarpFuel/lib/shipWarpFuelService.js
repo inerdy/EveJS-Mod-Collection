@@ -231,16 +231,46 @@ class ShipWarpFuelService extends BaseService {
     return this._getDependencies().itemStore.getActiveShipItem(characterID) || null;
   }
 
-  _fuelRows(characterID, shipID) {
-    return this._getDependencies().itemStore
-      .listContainerItems(characterID, shipID, FUEL_BAY_FLAG)
-      .filter((item) => positive(item && item.typeID) === this._config.fuelTypeID);
+  _fuelDefinition(typeID) {
+    const normalizedTypeID = positive(typeID, this._config.fuelTypeID);
+    return (this._config.fuelTypes || []).find((entry) =>
+      positive(entry && entry.typeID) === normalizedTypeID,
+    ) || {
+      typeID: normalizedTypeID,
+      name: "Fuel",
+      burnMultiplier: 1,
+    };
   }
 
-  _cargoFuelRows(characterID, shipID) {
+  _selectedFuelTypeID(shipID) {
+    const ship = this._state.ships[String(positive(shipID))];
+    const configuredTypeID = positive(ship && ship.fuelTypeID, this._config.fuelTypeID);
+    return (this._config.fuelTypes || []).some((entry) => positive(entry && entry.typeID) === configuredTypeID)
+      ? configuredTypeID
+      : this._config.fuelTypeID;
+  }
+
+  _allFuelTypeIDs() {
+    return new Set((this._config.fuelTypes || []).map((entry) => positive(entry && entry.typeID)));
+  }
+
+  _allFuelRows(characterID, shipID) {
+    const fuelTypeIDs = this._allFuelTypeIDs();
+    return this._getDependencies().itemStore
+      .listContainerItems(characterID, shipID, FUEL_BAY_FLAG)
+      .filter((item) => fuelTypeIDs.has(positive(item && item.typeID)));
+  }
+
+  _fuelRows(characterID, shipID, fuelTypeID = this._selectedFuelTypeID(shipID)) {
+    return this._getDependencies().itemStore
+      .listContainerItems(characterID, shipID, FUEL_BAY_FLAG)
+      .filter((item) => positive(item && item.typeID) === positive(fuelTypeID));
+  }
+
+  _cargoFuelRows(characterID, shipID, fuelTypeID = this._selectedFuelTypeID(shipID)) {
     return this._getDependencies().itemStore
       .listContainerItems(characterID, shipID, CARGO_HOLD_FLAG)
-      .filter((item) => positive(item && item.typeID) === this._config.fuelTypeID);
+      .filter((item) => positive(item && item.typeID) === positive(fuelTypeID));
   }
 
   _shipFuelProfile(characterID, session = null) {
@@ -256,13 +286,20 @@ class ShipWarpFuelService extends BaseService {
     );
     const configuredRate = this._config.fuelUnitsPerAUByClass &&
       this._config.fuelUnitsPerAUByClass[shipClass];
+    const fuelTypeID = this._selectedFuelTypeID(ship && ship.itemID);
+    const fuel = this._fuelDefinition(fuelTypeID);
+    const baseFuelUnitsPerAU = Math.max(
+      0.000001,
+      finite(configuredRate, this._config.fuelUnitsPerAU),
+    );
     return {
       ship,
       shipClass,
-      fuelUnitsPerAU: Math.max(
-        0.000001,
-        finite(configuredRate, this._config.fuelUnitsPerAU),
-      ),
+      fuelTypeID,
+      fuelName: fuel.name,
+      fuelMultiplier: Math.max(0.000001, finite(fuel.burnMultiplier, 1)),
+      baseFuelUnitsPerAU,
+      fuelUnitsPerAU: baseFuelUnitsPerAU * Math.max(0.000001, finite(fuel.burnMultiplier, 1)),
     };
   }
 
@@ -281,20 +318,34 @@ class ShipWarpFuelService extends BaseService {
   _fuelBayState(characterID, session = null) {
     const ship = this._activeShip(characterID, session);
     const shipID = positive(ship && ship.itemID, shipIDFromSession(session));
-    const fuelRows = shipID ? this._fuelRows(characterID, shipID) : [];
-    const cargoRows = shipID ? this._cargoFuelRows(characterID, shipID) : [];
+    const fuelTypeID = this._selectedFuelTypeID(shipID);
+    const fuelDefinition = this._fuelDefinition(fuelTypeID);
+    const fuelRows = shipID ? this._fuelRows(characterID, shipID, fuelTypeID) : [];
+    const cargoRows = shipID ? this._cargoFuelRows(characterID, shipID, fuelTypeID) : [];
     const fuelUnits = fuelRows.reduce((sum, item) => sum + quantityOf(item), 0);
     const cargoFuelUnits = cargoRows.reduce((sum, item) => sum + quantityOf(item), 0);
+    const fuelTypes = (this._config.fuelTypes || []).map((entry) => {
+      const entryTypeID = positive(entry.typeID);
+      return {
+        typeID: entryTypeID,
+        name: entry.name,
+        burnMultiplier: entry.burnMultiplier,
+        fuelUnits: shipID ? this.fuelQuantity(characterID, shipID, entryTypeID) : 0,
+        cargoFuelUnits: shipID ? this._cargoFuelRows(characterID, shipID, entryTypeID).reduce((sum, item) => sum + quantityOf(item), 0) : 0,
+      };
+    });
     return {
       shipID,
       shipName: String(ship && (ship.itemName || ship.name) || "Current Ship"),
-      fuelTypeID: this._config.fuelTypeID,
-      fuelName: "Oxygen Isotopes",
+      fuelTypeID,
+      fuelName: fuelDefinition.name,
+      fuelMultiplier: fuelDefinition.burnMultiplier,
       fuelBayFlagID: FUEL_BAY_FLAG,
       cargoHoldFlagID: CARGO_HOLD_FLAG,
       fuelUnits,
       fuelCapacityUnits: this._config.fuelCapacityUnits,
       cargoFuelUnits,
+      fuelTypes,
       fuelBayItems: fuelRows.map((item) => this._inventoryRow(item)),
       cargoFuelItems: cargoRows.map((item) => this._inventoryRow(item)),
     };
@@ -315,10 +366,13 @@ class ShipWarpFuelService extends BaseService {
 
     const sourceFlag = direction === "load" ? CARGO_HOLD_FLAG : FUEL_BAY_FLAG;
     const destinationFlag = direction === "load" ? FUEL_BAY_FLAG : CARGO_HOLD_FLAG;
+    const fuelTypeID = this._selectedFuelTypeID(shipID);
     const sourceRows = direction === "load"
-      ? this._cargoFuelRows(characterID, shipID)
-      : this._fuelRows(characterID, shipID);
-    const currentFuel = this.fuelQuantity(characterID, shipID);
+      ? this._cargoFuelRows(characterID, shipID, fuelTypeID)
+      : this._fuelRows(characterID, shipID, fuelTypeID);
+    const currentFuel = direction === "load"
+      ? this._allFuelRows(characterID, shipID).reduce((sum, item) => sum + quantityOf(item), 0)
+      : this.fuelQuantity(characterID, shipID, fuelTypeID);
     const defaultQuantity = direction === "load"
       ? Math.max(0, this._config.fuelCapacityUnits - currentFuel)
       : currentFuel;
@@ -334,7 +388,7 @@ class ShipWarpFuelService extends BaseService {
         positive(item.ownerID) !== characterID ||
         positive(item.locationID) !== shipID ||
         positive(item.flagID) !== sourceFlag ||
-        positive(item.typeID) !== this._config.fuelTypeID
+        positive(item.typeID) !== fuelTypeID
       ) continue;
       const take = Math.min(remaining, quantityOf(item));
       if (take <= 0) continue;
@@ -375,15 +429,15 @@ class ShipWarpFuelService extends BaseService {
     };
   }
 
-  fuelQuantity(characterID, shipID) {
-    return this._fuelRows(characterID, shipID).reduce(
+  fuelQuantity(characterID, shipID, fuelTypeID = this._selectedFuelTypeID(shipID)) {
+    return this._fuelRows(characterID, shipID, fuelTypeID).reduce(
       (sum, item) => sum + quantityOf(item),
       0,
     );
   }
 
-  fuelUnitVolumeM3() {
-    const metadata = this._getDependencies().itemStore.getItemMetadata(this._config.fuelTypeID);
+  fuelUnitVolumeM3(fuelTypeID = this._config.fuelTypeID) {
+    const metadata = this._getDependencies().itemStore.getItemMetadata(fuelTypeID);
     return Math.max(0.000001, finite(metadata && metadata.volume, 0.03));
   }
 
@@ -459,6 +513,8 @@ class ShipWarpFuelService extends BaseService {
     const ship = shipItem || this._activeShip(characterID, session);
     const shipID = positive(ship && ship.itemID, shipIDFromSession(session));
     if (!characterID || !shipID) return null;
+    const fuelTypeID = this._selectedFuelTypeID(shipID);
+    const fuelDefinition = this._fuelDefinition(fuelTypeID);
     const character = this._character(characterID);
     const fillKey = String(shipID);
     const existingMarker = character.initialFills[fillKey];
@@ -490,7 +546,7 @@ class ShipWarpFuelService extends BaseService {
       characterID,
       shipID,
       FUEL_BAY_FLAG,
-      this._config.fuelTypeID,
+      fuelTypeID,
       requested,
       {
         receiptKey: `${MOD_ID}:initial-fill:${characterID}:${shipID}`,
@@ -512,7 +568,7 @@ class ShipWarpFuelService extends BaseService {
     };
     this._ship(shipID, characterID);
     this._saveState();
-    this._send(session, `Initial fuel service loaded ${requested} Oxygen Isotopes.`);
+    this._send(session, `Initial fuel service loaded ${requested} ${fuelDefinition.name}.`);
     return afterFuel;
   }
 
@@ -537,10 +593,10 @@ class ShipWarpFuelService extends BaseService {
     return `${MOD_ID}:warp:${characterID}:${shipID}:${sequence}`;
   }
 
-  _consumeFuel(characterID, shipID, quantity, idempotencyKey) {
+  _consumeFuel(characterID, shipID, quantity, idempotencyKey, fuelTypeID = this._selectedFuelTypeID(shipID)) {
     let remaining = quantity;
     const requests = [];
-    for (const item of this._fuelRows(characterID, shipID).sort((left, right) => positive(left.itemID) - positive(right.itemID))) {
+    for (const item of this._fuelRows(characterID, shipID, fuelTypeID).sort((left, right) => positive(left.itemID) - positive(right.itemID))) {
       if (remaining <= 0) break;
       const available = quantityOf(item);
       const take = Math.min(remaining, available);
@@ -548,7 +604,7 @@ class ShipWarpFuelService extends BaseService {
       requests.push({
         itemID: item.itemID,
         quantity: take,
-        expectedTypeID: this._config.fuelTypeID,
+        expectedTypeID: fuelTypeID,
         expectedOwnerID: characterID,
         expectedLocationID: shipID,
         expectedFlagID: FUEL_BAY_FLAG,
@@ -584,7 +640,7 @@ class ShipWarpFuelService extends BaseService {
       this._config.minimumWarpFuel,
       Math.ceil(distanceAU * fuelProfile.fuelUnitsPerAU),
     );
-    const available = this.fuelQuantity(characterID, shipID);
+    const available = this.fuelQuantity(characterID, shipID, fuelProfile.fuelTypeID);
     if (available < fuelUnits) {
       this._send(session, `Warp blocked: ${fuelUnits} fuel units required, ${available} available.`);
       return {
@@ -597,13 +653,16 @@ class ShipWarpFuelService extends BaseService {
             required: fuelUnits,
             distanceAU,
             shipClass: fuelProfile.shipClass,
+            fuelTypeID: fuelProfile.fuelTypeID,
+            fuelName: fuelProfile.fuelName,
+            fuelMultiplier: fuelProfile.fuelMultiplier,
             fuelUnitsPerAU: fuelProfile.fuelUnitsPerAU,
           },
         },
       };
     }
     const key = this._nextWarpKey(characterID, shipID);
-    const consumed = this._consumeFuel(characterID, shipID, fuelUnits, key);
+    const consumed = this._consumeFuel(characterID, shipID, fuelUnits, key, fuelProfile.fuelTypeID);
     if (!consumed.success) {
       return {
         blocked: true,
@@ -615,6 +674,9 @@ class ShipWarpFuelService extends BaseService {
             required: fuelUnits,
             distanceAU,
             shipClass: fuelProfile.shipClass,
+            fuelTypeID: fuelProfile.fuelTypeID,
+            fuelName: fuelProfile.fuelName,
+            fuelMultiplier: fuelProfile.fuelMultiplier,
             fuelUnitsPerAU: fuelProfile.fuelUnitsPerAU,
           },
         },
@@ -627,6 +689,9 @@ class ShipWarpFuelService extends BaseService {
       distanceAU,
       fuelUnits,
       shipClass: fuelProfile.shipClass,
+      fuelTypeID: fuelProfile.fuelTypeID,
+      fuelName: fuelProfile.fuelName,
+      fuelMultiplier: fuelProfile.fuelMultiplier,
       fuelUnitsPerAU: fuelProfile.fuelUnitsPerAU,
       changes: consumed.changes,
       key,
@@ -673,17 +738,19 @@ class ShipWarpFuelService extends BaseService {
     const shipID = positive(ship && ship.itemID, shipIDFromSession(session));
     const character = this._character(characterID);
     const tracked = this._ship(shipID, characterID);
-    const fuel = shipID ? this.fuelQuantity(characterID, shipID) : 0;
     const fuelProfile = this._shipFuelProfile(characterID, session);
+    const fuel = shipID ? this.fuelQuantity(characterID, shipID, fuelProfile.fuelTypeID) : 0;
+    const fuelDefinition = this._fuelDefinition(fuelProfile.fuelTypeID);
     const now = Date.now();
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       enabled: this._config.enabled,
       characterID,
       shipID,
       shipName: String(ship && (ship.itemName || ship.name) || "Current Ship"),
-      fuelTypeID: this._config.fuelTypeID,
-      fuelName: "Oxygen Isotopes",
+      fuelTypeID: fuelProfile.fuelTypeID,
+      fuelName: fuelProfile.fuelName,
+      fuelMultiplier: fuelDefinition.burnMultiplier,
       fuelUnits: fuel,
       fuelCapacityUnits: this._config.fuelCapacityUnits,
       shipClass: fuelProfile.shipClass,
@@ -693,7 +760,10 @@ class ShipWarpFuelService extends BaseService {
       warpCount: tracked.warpCount,
       recentWarps: tracked.recentWarps,
       emergencyCooldownSeconds: Math.max(0, Math.ceil((character.cooldownUntilMs - now) / 1000)),
+      emergencyFuelUnits: this._config.emergencyFuelUnits,
+      emergencyFeeISK: this._config.emergencyFeeISK,
       debtISK: character.debtISK,
+      fuelTypes: this._config.fuelTypes,
     };
   }
 
@@ -701,7 +771,10 @@ class ShipWarpFuelService extends BaseService {
     return {
       enabled: this._config.enabled,
       fuelTypeID: this._config.fuelTypeID,
+      fuelTypes: this._config.fuelTypes,
       fuelCapacityUnits: this._config.fuelCapacityUnits,
+      waypointEstimateEnabled: this._config.waypointEstimateEnabled,
+      estimatedWarpAUPerGateJump: this._config.estimatedWarpAUPerGateJump,
       characters: Object.keys(this._state.characters).length,
       ships: Object.keys(this._state.ships).length,
       statePath: this._stateStore.filePath,
@@ -726,24 +799,77 @@ class ShipWarpFuelService extends BaseService {
     return marshal(this._fuelBayState(characterID, session));
   }
 
+  Handle_SetFuelType(args, session) {
+    const characterID = characterIDFromSession(session);
+    const shipID = shipIDFromSession(session);
+    const requestedTypeID = positive(requestObject(args).fuelTypeID);
+    const fuelDefinition = this._fuelDefinition(requestedTypeID);
+    const isConfigured = (this._config.fuelTypes || []).some((entry) =>
+      positive(entry && entry.typeID) === requestedTypeID,
+    );
+    if (!characterID || !shipID) throw new Error("SHIP_WARP_FUEL_SHIP_REQUIRED");
+    if (!isConfigured) throw new Error("SHIP_WARP_FUEL_TYPE_NOT_SUPPORTED");
+    const tracked = this._ship(shipID, characterID);
+    tracked.fuelTypeID = requestedTypeID;
+    this._saveState();
+    this._send(session, `Active warp fuel changed to ${fuelDefinition.name}.`);
+    return marshal(this._statusFor(characterID, session));
+  }
+
+  Handle_GetWaypointFuelEstimate(args, session) {
+    const characterID = characterIDFromSession(session);
+    const shipID = shipIDFromSession(session);
+    if (!characterID || !shipID) throw new Error("SHIP_WARP_FUEL_SHIP_REQUIRED");
+    const request = requestObject(args);
+    const profile = this._shipFuelProfile(characterID, session);
+    const hasRoute = request.hasRoute === true;
+    const jumps = Math.max(0, Math.trunc(Number(request.jumps) || 0));
+    const requestedAU = Number(request.estimatedWarpAU);
+    const estimatedWarpAU = Number.isFinite(requestedAU) && requestedAU >= 0
+      ? requestedAU
+      : jumps * this._config.estimatedWarpAUPerGateJump;
+    const fuelRequired = hasRoute
+      ? Math.max(0, Math.ceil(estimatedWarpAU * profile.fuelUnitsPerAU))
+      : 0;
+    const fuelAvailable = this.fuelQuantity(characterID, shipID, profile.fuelTypeID);
+    return marshal({
+      enabled: this._config.enabled && this._config.waypointEstimateEnabled,
+      hasRoute,
+      jumps,
+      estimatedWarpAU,
+      fuelRequired,
+      fuelAvailable,
+      fuelAfterRoute: fuelAvailable - fuelRequired,
+      deficit: Math.max(0, fuelRequired - fuelAvailable),
+      shipClass: profile.shipClass,
+      fuelTypeID: profile.fuelTypeID,
+      fuelName: profile.fuelName,
+      fuelMultiplier: profile.fuelMultiplier,
+      fuelUnitsPerAU: profile.fuelUnitsPerAU,
+      estimatePerGateJump: this._config.estimatedWarpAUPerGateJump,
+    });
+  }
+
   Handle_LoadFuel(args, session) {
     const request = requestObject(args);
+    const fuelTypeID = this._selectedFuelTypeID(shipIDFromSession(session));
     const result = this._moveFuelBetweenBays(session, "load", request.quantity);
     if (result.moved > 0) {
       this._emitInventoryChanges(session, result.changes);
-      this._send(session, `Loaded ${result.moved} Oxygen Isotopes into the fuel bay.`);
+      this._send(session, `Loaded ${result.moved} ${this._fuelDefinition(fuelTypeID).name} into the fuel bay.`);
     }
-    return marshal(result);
+    return marshal({...result, fuelTypeID, fuelName: this._fuelDefinition(fuelTypeID).name});
   }
 
   Handle_UnloadFuel(args, session) {
     const request = requestObject(args);
+    const fuelTypeID = this._selectedFuelTypeID(shipIDFromSession(session));
     const result = this._moveFuelBetweenBays(session, "unload", request.quantity);
     if (result.moved > 0) {
       this._emitInventoryChanges(session, result.changes);
-      this._send(session, `Moved ${result.moved} Oxygen Isotopes from the fuel bay into cargo.`);
+      this._send(session, `Moved ${result.moved} ${this._fuelDefinition(fuelTypeID).name} from the fuel bay into cargo.`);
     }
-    return marshal(result);
+    return marshal({...result, fuelTypeID, fuelName: this._fuelDefinition(fuelTypeID).name});
   }
 
   _serviceShipScene(serviceShip) {
@@ -1006,7 +1132,9 @@ class ShipWarpFuelService extends BaseService {
     if (character.cooldownUntilMs > now) {
       throw new Error("EMERGENCY_FUEL_COOLDOWN");
     }
-    if (this.fuelQuantity(characterID, shipID) > 0) {
+    const fuelTypeID = this._selectedFuelTypeID(shipID);
+    const fuelDefinition = this._fuelDefinition(fuelTypeID);
+    if (this.fuelQuantity(characterID, shipID, fuelTypeID) > 0) {
       throw new Error("EMERGENCY_FUEL_NOT_NEEDED");
     }
     const requestID = Math.max(1, Math.trunc(Number(this._state.nextEmergencyID) || 1));
@@ -1017,6 +1145,7 @@ class ShipWarpFuelService extends BaseService {
       status: "pending",
       shipID,
       systemID: positive(session._space.systemID),
+      fuelTypeID,
       fuelUnits: this._config.emergencyFuelUnits,
       feeISK: this._config.emergencyFeeISK,
       chargedISK: 0,
@@ -1039,7 +1168,7 @@ class ShipWarpFuelService extends BaseService {
       characterID,
       shipID,
       FUEL_BAY_FLAG,
-      this._config.fuelTypeID,
+      fuelTypeID,
       this._config.emergencyFuelUnits,
       {
         receiptKey: `${MOD_ID}:emergency:${characterID}:${requestID}:fuel`,
@@ -1063,7 +1192,7 @@ class ShipWarpFuelService extends BaseService {
     this._saveState();
     this._send(
       session,
-      `Emergency fuel delivered: ${request.fuelUnits} Oxygen Isotopes. ` +
+      `Emergency fuel delivered: ${request.fuelUnits} ${fuelDefinition.name}. ` +
       `Charged ${charge.chargedISK.toFixed(MAX_MONEY_DECIMALS)} ISK` +
       (charge.debtISK > 0 ? `; ${charge.debtISK.toFixed(MAX_MONEY_DECIMALS)} ISK added to fuel-service debt.` : "."),
     );

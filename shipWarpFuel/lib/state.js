@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 function nonNegative(value, fallback = 0) {
   const numeric = Number(value);
@@ -29,6 +29,7 @@ function defaultState() {
 function normalizeShip(raw = {}) {
   return {
     characterID: positive(raw.characterID),
+    fuelTypeID: positive(raw.fuelTypeID),
     totalWarpAU: nonNegative(raw.totalWarpAU),
     warpCount: Math.max(0, Math.trunc(nonNegative(raw.warpCount))),
     lastWarpAtMs: Math.max(0, Math.trunc(nonNegative(raw.lastWarpAtMs))),
@@ -61,6 +62,7 @@ function normalizeCharacter(raw = {}) {
       shipID: positive(entry && entry.shipID),
       systemID: positive(entry && entry.systemID),
       fuelUnits: Math.max(0, Math.trunc(nonNegative(entry && entry.fuelUnits))),
+      fuelTypeID: positive(entry && entry.fuelTypeID),
       feeISK: Math.round(nonNegative(entry && entry.feeISK) * 100) / 100,
       chargedISK: Math.round(nonNegative(entry && entry.chargedISK) * 100) / 100,
       debtISK: Math.round(nonNegative(entry && entry.debtISK) * 100) / 100,

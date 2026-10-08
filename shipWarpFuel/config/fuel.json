@@ -1,6 +1,12 @@
 {
   "enabled": true,
   "fuelTypeID": 17887,
+  "fuelTypes": [
+    {"typeID": 17889, "name": "Hydrogen Isotopes", "burnMultiplier": 0.75},
+    {"typeID": 16274, "name": "Helium Isotopes", "burnMultiplier": 0.90},
+    {"typeID": 17888, "name": "Nitrogen Isotopes", "burnMultiplier": 1.05},
+    {"typeID": 17887, "name": "Oxygen Isotopes", "burnMultiplier": 1.25}
+  ],
   "fuelCapacityUnits": 1000,
   "fuelUnitsPerAU": 1,
   "fuelUnitsPerAUByClass": {
@@ -30,5 +36,7 @@
   "serviceShipDelayMs": 1000,
   "debtPollMs": 30000,
   "trackWarpOdometer": true,
-  "recentWarpLimit": 10
+  "recentWarpLimit": 10,
+  "waypointEstimateEnabled": true,
+  "estimatedWarpAUPerGateJump": 50
 }

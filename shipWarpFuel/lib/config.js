@@ -34,9 +34,17 @@ const DEFAULT_FUEL_RATES = Object.freeze({
   fallback: 0.5,
 });
 
+const DEFAULT_FUEL_TYPES = Object.freeze([
+  Object.freeze({typeID: 17889, name: "Hydrogen Isotopes", burnMultiplier: 0.75}),
+  Object.freeze({typeID: 16274, name: "Helium Isotopes", burnMultiplier: 0.90}),
+  Object.freeze({typeID: 17888, name: "Nitrogen Isotopes", burnMultiplier: 1.05}),
+  Object.freeze({typeID: 17887, name: "Oxygen Isotopes", burnMultiplier: 1.25}),
+]);
+
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
   fuelTypeID: 17887,
+  fuelTypes: DEFAULT_FUEL_TYPES,
   fuelCapacityUnits: 1000,
   fuelUnitsPerAU: 1,
   fuelUnitsPerAUByClass: DEFAULT_FUEL_RATES,
@@ -55,6 +63,8 @@ const DEFAULT_CONFIG = Object.freeze({
   debtPollMs: 30000,
   trackWarpOdometer: true,
   recentWarpLimit: 10,
+  waypointEstimateEnabled: true,
+  estimatedWarpAUPerGateJump: 50,
 });
 
 function number(value, fallback) {
@@ -64,6 +74,23 @@ function number(value, fallback) {
 
 function integer(value, fallback, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, Math.trunc(number(value, fallback))));
+}
+
+function normalizeFuelTypes(value, fallback = DEFAULT_FUEL_TYPES) {
+  const source = Array.isArray(value) && value.length > 0 ? value : fallback;
+  const seen = new Set();
+  const result = [];
+  for (const entry of source) {
+    const typeID = integer(entry && entry.typeID, 0, 1, 1000000000);
+    if (!typeID || seen.has(typeID)) continue;
+    seen.add(typeID);
+    result.push(Object.freeze({
+      typeID,
+      name: String(entry && entry.name || `Fuel ${typeID}`).trim() || `Fuel ${typeID}`,
+      burnMultiplier: Math.max(0.000001, number(entry && entry.burnMultiplier, 1)),
+    }));
+  }
+  return Object.freeze(result.length > 0 ? result : fallback.map((entry) => Object.freeze({...entry})));
 }
 
 function normalizeConfig(value = {}) {
@@ -84,6 +111,9 @@ function normalizeConfig(value = {}) {
     source,
     "fuelUnitsPerAU",
   );
+  const fuelTypeID = integer(source.fuelTypeID, DEFAULT_CONFIG.fuelTypeID, 1, 1000000000);
+  const fuelTypes = normalizeFuelTypes(source.fuelTypes, DEFAULT_FUEL_TYPES);
+  const selectedFuelType = fuelTypes.find((entry) => entry.typeID === fuelTypeID) || fuelTypes[0];
   const fuelUnitsPerAUByClass = {};
   for (const key of FUEL_CLASS_KEYS) {
     fuelUnitsPerAUByClass[key] = Math.max(
@@ -98,7 +128,8 @@ function normalizeConfig(value = {}) {
   }
   return Object.freeze({
     enabled: source.enabled !== false,
-    fuelTypeID: integer(source.fuelTypeID, DEFAULT_CONFIG.fuelTypeID, 1, 1000000000),
+    fuelTypeID: selectedFuelType.typeID,
+    fuelTypes,
     fuelCapacityUnits: integer(source.fuelCapacityUnits, DEFAULT_CONFIG.fuelCapacityUnits, 1, 1000000000),
     fuelUnitsPerAU: fallbackRate,
     fuelUnitsPerAUByClass: Object.freeze(fuelUnitsPerAUByClass),
@@ -117,6 +148,11 @@ function normalizeConfig(value = {}) {
     debtPollMs: integer(source.debtPollMs, DEFAULT_CONFIG.debtPollMs, 1000, 86400000),
     trackWarpOdometer: source.trackWarpOdometer !== false,
     recentWarpLimit: integer(source.recentWarpLimit, DEFAULT_CONFIG.recentWarpLimit, 0, 100),
+    waypointEstimateEnabled: source.waypointEstimateEnabled !== false,
+    estimatedWarpAUPerGateJump: Math.max(
+      0.01,
+      number(source.estimatedWarpAUPerGateJump, DEFAULT_CONFIG.estimatedWarpAUPerGateJump),
+    ),
   });
 }
 
@@ -135,6 +171,7 @@ module.exports = {
   CONFIG_PATH,
   DEFAULT_CONFIG,
   DEFAULT_FUEL_RATES,
+  DEFAULT_FUEL_TYPES,
   FUEL_CLASS_KEYS,
   LOCAL_CONFIG_PATH,
   loadConfig,
