@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "temppatches";
-const MOD_VERSION = "0.2.2";
+const MOD_VERSION = "0.2.3";
 const INSTALL_FLAG = Symbol.for("evejs.tempPatches.loaderInstalled");
 const LOAD_HOOK_FLAG = Symbol.for("evejs.tempPatches.loadHookInstalled");
 const PATCH_FLAG = Symbol.for("evejs.tempPatches.dungeonWavePatchInstalled");

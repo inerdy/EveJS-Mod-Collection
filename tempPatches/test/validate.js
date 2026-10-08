@@ -11,7 +11,7 @@ const manifest = JSON.parse(
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "temppatches");
-assert.equal(manifest.version, "0.2.2");
+assert.equal(manifest.version, "0.2.3");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");

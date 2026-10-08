@@ -25,6 +25,11 @@ function normalizeState(value) {
   return String(value == null ? "" : value).trim().toLowerCase();
 }
 
+function resolveLoadedExport(modulePath) {
+  const cachedModule = require.cache[modulePath];
+  return cachedModule && cachedModule.loaded ? cachedModule.exports : null;
+}
+
 function resolveInstanceID(scene, siteID, instanceIDsBySiteID) {
   const trackedID = toInt(
     instanceIDsBySiteID && typeof instanceIDsBySiteID.get === "function"
@@ -82,10 +87,19 @@ function installTerminalSiteMarkerCleanup(options = {}) {
     250,
     toInt(options.intervalMs, DEFAULT_INTERVAL_MS),
   );
-  const runtime = options.runtime || require(SPACE_RUNTIME_PATH);
-  const dungeonRuntime = options.dungeonRuntime || require(DUNGEON_RUNTIME_PATH);
+  // Do not require these modules during loader initialization. They are large
+  // runtime graphs and the server loads them naturally during startup. Waiting
+  // for their cache entries avoids duplicating the startup memory peak and
+  // avoids changing module initialization order.
+  let runtime = options.runtime || null;
+  let dungeonRuntime = options.dungeonRuntime || null;
   const sweep = () => {
     try {
+      runtime = runtime || resolveLoadedExport(SPACE_RUNTIME_PATH);
+      dungeonRuntime = dungeonRuntime || resolveLoadedExport(DUNGEON_RUNTIME_PATH);
+      if (!runtime || !dungeonRuntime) {
+        return;
+      }
       const removedCount = sweepTerminalSiteMarkers(runtime, dungeonRuntime);
       if (removedCount > 0) {
         log(`removed ${removedCount} terminal dungeon site marker(s) from active scene processing`);
@@ -113,6 +127,7 @@ module.exports = Object.freeze({
   TERMINAL_STATES,
   installTerminalSiteMarkerCleanup,
   _testing: Object.freeze({
+    resolveLoadedExport,
     resolveInstanceID,
     sweepTerminalSiteMarkers,
   }),
