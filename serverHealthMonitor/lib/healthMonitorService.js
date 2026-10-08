@@ -103,6 +103,79 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function collectionValues(value) {
+  if (value instanceof Map) return [...value.values()];
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return Object.values(value);
+  return [];
+}
+
+function summarizeScene(scene) {
+  const staticEntities = collectionValues(scene && scene.staticEntities);
+  const dynamicEntities = collectionValues(scene && scene.dynamicEntities);
+  const entities = [...staticEntities, ...dynamicEntities].filter(Boolean);
+  const counts = {
+    totalEntities: entities.length,
+    staticEntities: staticEntities.length,
+    dynamicEntities: dynamicEntities.length,
+    npcCount: 0,
+    shipCount: 0,
+    droneCount: 0,
+    wreckCount: 0,
+    containerCount: 0,
+  };
+  for (const entity of entities) {
+    const kind = String(entity.kind || "").trim().toLowerCase();
+    const groupName = String(entity.groupName || "").trim().toLowerCase();
+    if (entity.nativeNpcWreck === true || kind === "wreck" || groupName === "wreck") {
+      counts.wreckCount += 1;
+      continue;
+    }
+    if (kind === "container" || groupName === "cargo container" || entity.isContainer === true) {
+      counts.containerCount += 1;
+      continue;
+    }
+    const drone =
+      kind === "drone" ||
+      entity.isDrone === true ||
+      entity.drone === true ||
+      Number(entity.droneID || 0) > 0;
+    if (drone) counts.droneCount += 1;
+    if (kind === "ship" || drone) counts.shipCount += 1;
+    if (
+      entity.nativeNpc === true ||
+      entity.nativeNpcOccupied === true ||
+      ["npc", "concord"].includes(String(entity.npcEntityType || "").trim().toLowerCase())
+    ) {
+      counts.npcCount += 1;
+    }
+  }
+  const systemID = positiveInteger(scene && scene.systemID);
+  return {
+    systemID,
+    systemName: String(
+      scene && scene.system && (scene.system.name || scene.system.solarSystemName) ||
+      scene && scene.systemName ||
+      systemID ||
+      "Unknown",
+    ),
+    sessions: scene && scene.sessions instanceof Map ? scene.sessions.size : 0,
+    ...counts,
+  };
+}
+
+function positiveInteger(value) {
+  const numeric = Math.trunc(Number(value) || 0);
+  return numeric > 0 ? numeric : 0;
+}
+
+function summarizeScenes(runtime) {
+  if (!runtime || !(runtime.scenes instanceof Map)) return [];
+  return [...runtime.scenes.values()]
+    .map((scene) => summarizeScene(scene))
+    .sort((left, right) => left.systemID - right.systemID);
+}
+
 class HealthMonitorService extends BaseService {
   constructor(options = {}) {
     super(SERVICE_NAME);
@@ -122,6 +195,7 @@ class HealthMonitorService extends BaseService {
     this._lastHealthyAtMs = 0;
     this._lastRuntimeLookupAtMs = 0;
     this._runtimeLookupErrorLogged = false;
+    this._transition = null;
     if (this._config.enabled && options.autoStart !== false) {
       this._start();
     }
@@ -159,6 +233,43 @@ class HealthMonitorService extends BaseService {
       currentLagMs: snapshot.current.currentLagMs,
       peakLagMs: snapshot.performance.peakLagMs,
       historySamples: snapshot.history.length,
+      transition: snapshot.transition,
+    };
+  }
+
+  beginTransition(kind = "stargate-jump", metadata = {}) {
+    const nowMs = Date.now();
+    this._transition = {
+      kind: String(kind || "transition"),
+      startedAtMs: nowMs,
+      untilMs: nowMs + this._config.transitionGraceMs,
+      sourceSystemID: positiveInteger(metadata.sourceSystemID),
+      destinationSystemID: positiveInteger(metadata.destinationSystemID),
+    };
+    return clone(this._transition);
+  }
+
+  cancelTransition(kind = null) {
+    if (!this._transition || !kind || this._transition.kind === kind) {
+      this._transition = null;
+    }
+    return true;
+  }
+
+  _activeTransition(nowMs = Date.now()) {
+    if (!this._transition || this._transition.untilMs <= nowMs) {
+      if (this._transition && this._transition.untilMs <= nowMs) this._transition = null;
+      return null;
+    }
+    return {
+      active: true,
+      kind: this._transition.kind,
+      startedAtMs: this._transition.startedAtMs,
+      untilMs: this._transition.untilMs,
+      elapsedMs: Math.max(0, nowMs - this._transition.startedAtMs),
+      remainingMs: Math.max(0, this._transition.untilMs - nowMs),
+      sourceSystemID: this._transition.sourceSystemID,
+      destinationSystemID: this._transition.destinationSystemID,
     };
   }
 
@@ -204,7 +315,13 @@ class HealthMonitorService extends BaseService {
         ? runtime._testing.getLastRuntimeTickSummary.bind(runtime._testing)
         : null;
     if (!runtime || !getLastRuntimeTickSummary) {
-      return {available: false, sessions: null, sceneCount: null, tickedSceneCount: null};
+      return {
+        available: false,
+        sessions: null,
+        sceneCount: null,
+        tickedSceneCount: null,
+        sceneDiagnostics: [],
+      };
     }
     let summary = null;
     try {
@@ -220,7 +337,13 @@ class HealthMonitorService extends BaseService {
       }
     }
     if (!summary) {
-      return {available: false, sessions, sceneCount: runtime.scenes instanceof Map ? runtime.scenes.size : null, tickedSceneCount: null};
+      return {
+        available: false,
+        sessions,
+        sceneCount: runtime.scenes instanceof Map ? runtime.scenes.size : null,
+        tickedSceneCount: null,
+        sceneDiagnostics: summarizeScenes(runtime),
+      };
     }
     return {
       available: true,
@@ -231,6 +354,7 @@ class HealthMonitorService extends BaseService {
       sceneCount: nonNegative(summary.sceneCount, 0),
       tickedSceneCount: nonNegative(summary.tickedSceneCount, 0),
       sessions,
+      sceneDiagnostics: summarizeScenes(runtime),
     };
   }
 
@@ -312,12 +436,14 @@ class HealthMonitorService extends BaseService {
       eventLoopDelayMs,
       finite(tickLatenessMs, 0),
     ));
-    const status = classifyStatus({
+    const measuredStatus = classifyStatus({
       eventLoopDelayMs,
       tickDurationMs,
       tickLatenessMs,
       thresholds: this._config.thresholds,
     });
+    const transition = this._activeTransition(nowMs);
+    const status = transition ? "transition" : measuredStatus;
     const sample = {
       timestamp: new Date(nowMs).toISOString(),
       timestampMs: nowMs,
@@ -331,6 +457,9 @@ class HealthMonitorService extends BaseService {
       sceneCount: runtime.sceneCount,
       tickedSceneCount: runtime.tickedSceneCount,
       sessions: runtime.sessions,
+      sceneDiagnostics: runtime.sceneDiagnostics || [],
+      measuredStatus,
+      transition,
       ...processSample,
     };
     this._history.push(sample);
@@ -373,6 +502,9 @@ class HealthMonitorService extends BaseService {
       sceneCount: null,
       tickedSceneCount: null,
       sessions: null,
+      sceneDiagnostics: [],
+      measuredStatus: "healthy",
+      transition: null,
     };
     const finiteSamples = history.length > 0 ? history : [latest];
     const nowMs = Date.now();
@@ -380,7 +512,9 @@ class HealthMonitorService extends BaseService {
       schemaVersion: 1,
       enabled: this._config.enabled,
       status: latest.status,
+      measuredStatus: latest.measuredStatus || latest.status,
       statusSinceMs: this._statusSinceMs || latest.timestampMs,
+      transition: this._activeTransition(nowMs),
       current: {
         currentLagMs: latest.currentLagMs,
         eventLoopDelayMs: latest.eventLoopDelayMs,
@@ -392,6 +526,7 @@ class HealthMonitorService extends BaseService {
         sceneCount: latest.sceneCount,
         tickedSceneCount: latest.tickedSceneCount,
         sessions: latest.sessions,
+        sceneDiagnostics: latest.sceneDiagnostics || [],
       },
       performance: {
         peakLagMs: metricMaximum(finiteSamples, "currentLagMs"),

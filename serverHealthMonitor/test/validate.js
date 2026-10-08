@@ -17,7 +17,7 @@ function read(relativePath) {
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "serverhealthmonitor");
 assert.equal(manifest.displayName, "Server Health Monitor");
-assert.equal(manifest.version, "0.1.0");
+assert.equal(manifest.version, "0.2.0");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -28,6 +28,7 @@ const config = normalizeConfig(JSON.parse(read("config/health-monitor.json")));
 assert.equal(config.enabled, true);
 assert.equal(config.sampleIntervalMs, 1000);
 assert.equal(config.historyMinutes, 5);
+assert.equal(config.transitionGraceMs, 3000);
 assert.equal(config.thresholds.degradedEventLoopDelayMs, 100);
 assert.equal(config.thresholds.stalledEventLoopDelayMs, 2000);
 assert.equal(config.logging.maxBytes, 5242880);
@@ -76,7 +77,18 @@ const service = new Service({
   autoStart: false,
   dataDir,
   runtime: {
-    scenes: new Map([[1, {sessions: new Map([[1, {}]])}]]),
+    scenes: new Map([[1, {
+      systemID: 30000001,
+      system: {name: "Test System"},
+      sessions: new Map([[1, {}]]),
+      staticEntities: [{kind: "ship", nativeNpc: true}],
+      dynamicEntities: new Map([
+        [2, {kind: "ship", nativeNpc: true}],
+        [3, {kind: "drone", nativeNpc: true, isDrone: true}],
+        [4, {kind: "wreck", nativeNpcWreck: true}],
+        [5, {kind: "container"}],
+      ]),
+    }]]),
     _testing: {
       getLastRuntimeTickSummary: () => runtimeTick,
     },
@@ -87,10 +99,17 @@ const firstSample = service._sample();
 assert.equal(firstSample.status, "healthy");
 assert.equal(firstSample.sessions, 1);
 assert.equal(firstSample.sceneCount, 1);
+assert.equal(firstSample.sceneDiagnostics[0].systemName, "Test System");
+assert.equal(firstSample.sceneDiagnostics[0].totalEntities, 5);
+assert.equal(firstSample.sceneDiagnostics[0].npcCount, 3);
+assert.equal(firstSample.sceneDiagnostics[0].droneCount, 1);
+assert.equal(firstSample.sceneDiagnostics[0].wreckCount, 1);
+assert.equal(firstSample.sceneDiagnostics[0].containerCount, 1);
 const snapshot = service.getHealthStatus();
 assert.equal(snapshot.status, "healthy");
 assert.equal(snapshot.current.tickDurationMs, 18);
 assert.equal(snapshot.current.sessions, 1);
+assert.equal(snapshot.current.sceneDiagnostics[0].shipCount, 3);
 assert.equal(snapshot.history.length, 1);
 runtimeTick = {...runtimeTick, tickDurationMs: 3000};
 service._nextSampleAtMs = Date.now() - 1;
@@ -104,6 +123,16 @@ const incidentLog = fs.readFileSync(
 ).trim().split(/\r?\n/u).map((line) => JSON.parse(line));
 assert.deepEqual(incidentLog.map((entry) => entry.event), ["stalled", "recovered"]);
 assert.ok(incidentLog[1].durationMs >= 0);
+service.beginTransition("stargate-jump", {
+  sourceSystemID: 30000001,
+  destinationSystemID: 30000002,
+});
+service._nextSampleAtMs = Date.now();
+assert.equal(service._sample().status, "transition");
+assert.equal(service.getHealthStatus().transition.kind, "stargate-jump");
+service.cancelTransition("stargate-jump");
+service._nextSampleAtMs = Date.now();
+assert.equal(service._sample().status, "healthy");
 service.stop();
 assert.throws(
   () => service.Handle_GetHealthStatus({}, {role: "0"}),
@@ -121,6 +150,10 @@ assert.match(client, /GetHealthStatus/u);
 assert.match(client, /Recent health history/u);
 assert.match(client, /Systems loaded/u);
 assert.match(client, /Active sessions/u);
+assert.match(client, /TabGroup/u);
+assert.match(client, /Scene Diagnostics/u);
+assert.match(client, /wreckCount/u);
+assert.match(client, /TRANSITION/u);
 assert.match(client, /_client_is_gm/u);
 assert.match(client, /mods\.register/u);
 
@@ -128,6 +161,9 @@ const loader = read("loader.js");
 assert.match(loader, /servicemanager\.js/u);
 assert.match(loader, /serverHealthMonitor/u);
 assert.match(loader, /normalizedPath/u);
+assert.match(loader, /beyonceservice\.js/u);
+assert.match(loader, /Handle_CmdStargateJump/u);
+assert.match(loader, /beginTransition/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {
@@ -152,4 +188,4 @@ assert.deepEqual(packageFiles.sort(), [
   "test/validate.js",
 ]);
 
-console.log("Server Health Monitor manifest, thresholds, sampling, dashboard, logging, and package checks passed.");
+console.log("Server Health Monitor manifest, thresholds, scene diagnostics, transitions, dashboard, logging, and package checks passed.");

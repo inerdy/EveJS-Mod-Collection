@@ -8,6 +8,7 @@ import evejs_mod_menu as mods
 import uthread
 from carbonui import uiconst
 from carbonui.control.scrollContainer import ScrollContainer
+from carbonui.control.tabGroup import TabGroup
 from carbonui.control.window import Window
 from carbonui.primitives.container import Container
 from eve.client.script.ui.control.eveLabel import EveLabelMedium
@@ -22,6 +23,7 @@ _COLOR_MUTED = '0xffa6adb8'
 _COLOR_HEALTHY = '0xff71e6a3'
 _COLOR_DEGRADED = '0xffffd166'
 _COLOR_STALLED = '0xffff6b6b'
+_COLOR_TRANSITION = '0xff8fd8ff'
 _COLOR_VALUE = '0xffffffff'
 _GM_ROLE_MASK = (
     274877906944 |       # GMS
@@ -83,6 +85,7 @@ def _status_color(status):
         'healthy': _COLOR_HEALTHY,
         'degraded': _COLOR_DEGRADED,
         'stalled': _COLOR_STALLED,
+        'transition': _COLOR_TRANSITION,
     }.get(status, _COLOR_MUTED)
 
 
@@ -119,6 +122,13 @@ class ServerHealthMonitorWindow(Window):
         Window.ApplyAttributes(self, attributes)
         self._closed = False
         self._generation = 0
+        self._tabs = TabGroup(
+            parent=self.content,
+            align=uiconst.TOTOP,
+            height=26,
+            padLeft=8,
+            padRight=8,
+        )
         self._scroll = ScrollContainer(
             parent=self.content,
             align=uiconst.TOALL,
@@ -129,6 +139,26 @@ class ServerHealthMonitorWindow(Window):
             align=uiconst.TOTOP,
             height=780,
         )
+        self._scene_scroll = ScrollContainer(
+            parent=self.content,
+            align=uiconst.TOALL,
+            padding=(8, 2, 8, 8),
+        )
+        self._scene_body = Container(
+            parent=self._scene_scroll,
+            align=uiconst.TOTOP,
+            height=780,
+        )
+        self._scene_diagnostics = EveLabelMedium(
+            parent=self._scene_body,
+            align=uiconst.TOTOP,
+            height=760,
+            padLeft=10,
+            padTop=8,
+            text=_color(_COLOR_MUTED, 'Loading scene diagnostics...'),
+        )
+        self._tabs.AddTab('Overview', self._scroll)
+        self._tabs.AddTab('Scene Diagnostics', self._scene_scroll)
         self._summary = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,
@@ -176,6 +206,7 @@ class ServerHealthMonitorWindow(Window):
             state = self._decode(sm.RemoteSvc(_SERVICE).GetHealthStatus({}))
             if not self.destroyed:
                 self._render(state)
+                self._render_scene_diagnostics(state)
         except Exception as error:
             if not self.destroyed:
                 self._summary.SetText(
@@ -199,6 +230,10 @@ class ServerHealthMonitorWindow(Window):
         heartbeat = state.get('heartbeat') or {}
         thresholds = state.get('thresholds') or {}
         status_text = status.upper()
+        transition = state.get('transition') or {}
+        transition_text = ''
+        if transition.get('active'):
+            transition_text = ' (%s)' % str(transition.get('kind', 'transition')).replace('-', ' ')
         tick_duration = current.get('tickDurationMs')
         tick_lateness = current.get('tickLatenessMs')
         runtime_text = (
@@ -210,7 +245,7 @@ class ServerHealthMonitorWindow(Window):
         self._summary.SetText(
             '%s %s\n%s %s\n%s\n%s' % (
                 _color(_COLOR_LABEL, 'Current status:'),
-                _color(_status_color(status), status_text),
+                _color(_status_color(status), status_text + transition_text),
                 _color(_COLOR_LABEL, 'Current lag:'),
                 _color(_COLOR_VALUE, _format_ms(current.get('currentLagMs'))),
                 _color(_COLOR_LABEL, runtime_text),
@@ -271,6 +306,41 @@ class ServerHealthMonitorWindow(Window):
             )
             lines.append(_color(_status_color(entry_status), line))
         self._history.SetText('\n'.join(lines))
+
+    def _render_scene_diagnostics(self, state):
+        current = state.get('current') or {}
+        scenes = current.get('sceneDiagnostics') or []
+        lines = [
+            _color(_COLOR_LABEL, 'Scene Diagnostics'),
+            _color(_COLOR_MUTED, 'GM-only live counts from loaded solar-system scenes.'),
+        ]
+        if not scenes:
+            lines.append(_color(_COLOR_MUTED, 'No loaded scene diagnostics are available.'))
+            self._scene_diagnostics.SetText('\n'.join(lines))
+            return
+        lines.append(_color(_COLOR_LABEL, 'Loaded scenes: %s' % len(scenes)))
+        for scene in scenes:
+            lines.append('')
+            lines.append(_color(_COLOR_ACTIVE, '%s (%s)' % (
+                scene.get('systemName', 'Unknown system'),
+                _format_count(scene.get('systemID')),
+            )))
+            lines.append(_color(_COLOR_VALUE, 'Sessions: %s | Entities: %s (%s static / %s dynamic)' % (
+                _format_count(scene.get('sessions')),
+                _format_count(scene.get('totalEntities')),
+                _format_count(scene.get('staticEntities')),
+                _format_count(scene.get('dynamicEntities')),
+            )))
+            lines.append(_color(_COLOR_VALUE, 'NPCs: %s | Ships: %s | Drones: %s' % (
+                _format_count(scene.get('npcCount')),
+                _format_count(scene.get('shipCount')),
+                _format_count(scene.get('droneCount')),
+            )))
+            lines.append(_color(_COLOR_VALUE, 'Wrecks: %s | Containers: %s' % (
+                _format_count(scene.get('wreckCount')),
+                _format_count(scene.get('containerCount')),
+            )))
+        self._scene_diagnostics.SetText('\n'.join(lines))
 
     def Close(self, *args, **kwargs):
         global _window

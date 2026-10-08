@@ -2,6 +2,7 @@
   "enabled": true,
   "sampleIntervalMs": 1000,
   "historyMinutes": 5,
+  "transitionGraceMs": 3000,
   "thresholds": {
     "degradedEventLoopDelayMs": 100,
     "stalledEventLoopDelayMs": 2000,

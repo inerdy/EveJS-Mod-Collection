@@ -1,8 +1,8 @@
 # Server Health Monitor
 
-Server Health Monitor is a native-only EveJS mod that shows whether the game server is healthy, degraded, or stalled.
+Server Health Monitor is a native-only EveJS mod that shows whether the game server is healthy, degraded, stalled, or briefly changing systems.
 
-It samples the Node event loop and the native space-runtime tick summary. The in-game window displays current and peak lag, average and worst tick duration, event-loop delay, heartbeat age, and a short rolling history. It does not record every tick to disk.
+It samples the Node event loop and the native space-runtime tick summary. The in-game window displays current and peak lag, average and worst tick duration, event-loop delay, heartbeat age, a short rolling history, and a separate Scene Diagnostics tab. The diagnostics tab lists loaded systems, sessions, total entities, NPCs, ships, drones, wrecks, and containers. It does not record every tick to disk.
 
 ## Installation
 
@@ -20,6 +20,7 @@ Edit `config/health-monitor.json` while the game server is stopped, then restart
 
 - `sampleIntervalMs` controls sampling frequency.
 - `historyMinutes` controls the rolling dashboard history from one to five minutes.
+- `transitionGraceMs` controls how long a successful stargate jump is shown as `TRANSITION` while the destination scene loads. The default is 3,000 ms.
 - `thresholds` controls when event-loop delay or runtime ticks become degraded or stalled.
 - `logging.enabled` controls incident logging.
 - `logging.maxBytes` limits the active log file before it is rotated to `.1`.
@@ -34,7 +35,13 @@ When the status changes to degraded or stalled, the mod writes one JSON line to:
 
 When the server returns to healthy, it writes a recovery record with the incident duration. Each record includes timestamps, lag, event-loop delay, tick duration, CPU, memory, scene count, and active sessions when available.
 
-The monitor keeps logging transition-based events only, so normal operation does not produce a large log stream.
+The monitor keeps logging status changes only, so normal operation does not produce a large log stream. A normal gate jump may produce a short `transition` and recovery pair; if the measured delay remains above the configured stalled threshold after the grace window, it is recorded as `stalled`.
+
+## Gate transitions
+
+The loader observes native stargate-jump calls and marks the monitor as `TRANSITION` for the configured grace window. The measured lag is still retained in the current and historical metrics. Failed gate calls cancel the transition marker. This keeps normal destination-scene loading separate from a real server stall without hiding a stall that lasts beyond the grace period.
+
+The Scene Diagnostics tab is GM-only, like the rest of the monitor. It is intended to show whether a lag spike correlates with a large combat scene or a growing number of wrecks and other dynamic entities.
 
 ## License and maintenance
 

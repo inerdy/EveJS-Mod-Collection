@@ -9,6 +9,7 @@ const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
   sampleIntervalMs: 1000,
   historyMinutes: 5,
+  transitionGraceMs: 3000,
   thresholds: {
     degradedEventLoopDelayMs: 100,
     stalledEventLoopDelayMs: 2000,
@@ -90,6 +91,12 @@ function normalizeConfig(value = {}) {
       DEFAULT_CONFIG.historyMinutes,
       1,
       5,
+    ),
+    transitionGraceMs: integer(
+      source.transitionGraceMs,
+      DEFAULT_CONFIG.transitionGraceMs,
+      1000,
+      30000,
     ),
     thresholds: Object.freeze({
       degradedEventLoopDelayMs,
