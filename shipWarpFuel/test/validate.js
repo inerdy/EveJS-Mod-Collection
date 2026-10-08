@@ -160,6 +160,7 @@ const fakeStateStore = {
   save: (value) => normalizeState(value),
 };
 const inventoryNotifications = [];
+const clientNotifications = [];
 const fakeDependencies = {
   itemStore: fakeItemStore,
   spaceRuntime: {
@@ -184,6 +185,10 @@ const fuelService = new ServiceModule({
   autoStart: false,
 });
 const session = {characterID: 42, _space: {shipID: 900, systemID: 30000002}};
+const notifyingSession = {
+  ...session,
+  sendNotification: (...args) => clientNotifications.push(args),
+};
 const warpPlan = fuelService.prepareWarp(session, "entity", 123);
 assert.equal(warpPlan.blocked, undefined);
 assert.equal(warpPlan.shipClass, "destroyer");
@@ -216,6 +221,24 @@ assert.equal(fuelRows.get(700).quantity, 8);
 assert.equal(cargoRows.get(701).quantity, 12);
 assert.equal(inventoryNotifications.length, 2);
 assert.equal(inventoryNotifications[1][0].item.flagID, 5);
+fuelRows.get(700).quantity = 1000;
+fuelRows.get(700).stacksize = 1000;
+cargoRows.get(701).quantity = 0;
+cargoRows.get(701).stacksize = 0;
+const blockedLoad = JSON.parse(fuelService.Handle_LoadFuel([{quantity: 0}], notifyingSession));
+assert.equal(blockedLoad.moved, 0);
+assert.equal(clientNotifications.length, 1);
+assert.deepEqual(clientNotifications[0], [
+  "OnRemoteMessage",
+  "clientID",
+  [
+    "CustomNotify",
+    {
+      type: "dict",
+      entries: [["notify", "Cannot load Oxygen Isotopes: the fuel bay already contains fuel or is full."]],
+    },
+  ],
+]);
 const estimate = JSON.parse(fuelService.Handle_GetWaypointFuelEstimate([{hasRoute: true, jumps: 4}], session));
 assert.equal(estimate.hasRoute, true);
 assert.equal(estimate.jumps, 4);
@@ -283,6 +306,8 @@ assert.match(service, /Handle_SetFuelType/u);
 assert.match(service, /EMERGENCY_FUEL_REQUIRES_SPACE/u);
 assert.match(service, /isInSpaceSession/u);
 assert.match(service, /unwrapMarshalValue/u);
+assert.match(service, /CustomNotify/u);
+assert.match(service, /Cannot load \$\{fuelName\}/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {

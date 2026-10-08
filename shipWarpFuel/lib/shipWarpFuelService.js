@@ -520,6 +520,26 @@ class ShipWarpFuelService extends BaseService {
     }
   }
 
+  _notify(session, message) {
+    if (!session || !message) return false;
+    try {
+      if (typeof session.sendNotification === "function") {
+        session.sendNotification("OnRemoteMessage", "clientID", [
+          "CustomNotify",
+          {
+            type: "dict",
+            entries: [["notify", String(message)]],
+          },
+        ]);
+        return true;
+      }
+    } catch (error) {
+      log.debug(`[${MOD_ID}] client notification failed: ${error.message}`);
+    }
+    this._send(session, message);
+    return false;
+  }
+
   _emitInventoryChanges(session, changes = []) {
     if (!session || !Array.isArray(changes) || changes.length === 0) return;
     const characterState = this._getDependencies().characterState;
@@ -886,6 +906,16 @@ class ShipWarpFuelService extends BaseService {
     if (result.moved > 0) {
       this._emitInventoryChanges(session, result.changes);
       this._send(session, `Loaded ${result.moved} ${this._fuelDefinition(fuelTypeID).name} into the fuel bay.`);
+    } else {
+      const fuelName = this._fuelDefinition(fuelTypeID).name;
+      const bayContainsFuel = (result.state && Array.isArray(result.state.fuelBayItems)) &&
+        result.state.fuelBayItems.some((item) => quantityOf(item) > 0);
+      this._notify(
+        session,
+        bayContainsFuel
+          ? `Cannot load ${fuelName}: the fuel bay already contains fuel or is full.`
+          : `Cannot load ${fuelName}: no matching fuel was found in the ship's cargo hold.`,
+      );
     }
     return marshal({...result, fuelTypeID, fuelName: this._fuelDefinition(fuelTypeID).name});
   }
