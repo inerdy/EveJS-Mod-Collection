@@ -203,19 +203,18 @@ class NpcMarketLiquidityService extends BaseService {
 
   _listItems() {
     if (!this._items) {
-      const fuelTypeID = positive(this._config.hubFuelSeed && this._config.hubFuelSeed.typeID);
+      const fuelTypeIDs = new Set((this._config.fuelSeeds || []).map((seed) => positive(seed && seed.typeID)));
       this._items = listItemTypes()
         .filter(eligibleItem)
-        .filter((item) => !this._config.hubFuelSeed.enabled || positive(item.typeID) !== fuelTypeID)
+        .filter((item) => !fuelTypeIDs.has(positive(item.typeID)))
         .sort((left, right) => positive(left.typeID) - positive(right.typeID));
     }
     return this._items;
   }
 
-  _fuelSeedItem() {
-    if (!this._config.hubFuelSeed.enabled) return null;
+  _fuelSeedItem(typeID) {
     return listItemTypes().find((item) =>
-      eligibleItem(item) && positive(item.typeID) === positive(this._config.hubFuelSeed.typeID)) || null;
+      eligibleItem(item) && positive(item.typeID) === positive(typeID)) || null;
   }
 
   _loadHub(stationID) {
@@ -275,28 +274,31 @@ class NpcMarketLiquidityService extends BaseService {
     ));
   }
 
-  async _processFuelSeed(station, item, existing, nowMs) {
+  async _processFuelSeed(station, configured, existing, nowMs) {
     const result = {created: 0, replaced: 0, skipped: 0, failed: 0};
-    if (!this._config.hubFuelSeed.enabled) return result;
+    if (!configured || configured.enabled === false) return result;
+    const item = this._fuelSeedItem(configured.typeID);
     if (!item) {
       result.skipped = 1;
       return result;
     }
 
     const stationKey = String(station.stationID);
-    const configured = this._config.hubFuelSeed;
+    const seedKey = `${stationKey}:${configured.typeID}`;
     const openOrders = this._fuelSeedOrders(station.stationID, item.typeID, existing);
     if (openOrders.length > 0) {
       const current = openOrders.sort((left, right) => Number(left.order_id) - Number(right.order_id))[0];
-      this._state.fuelSeedByStation[stationKey] = {
-        ...(this._state.fuelSeedByStation[stationKey] || {}),
+      this._state.fuelSeedByStation[seedKey] = {
+        ...(this._state.fuelSeedByStation[seedKey] || {}),
         orderID: String(current.order_id || ""),
+        typeID: configured.typeID,
       };
       result.skipped = 1;
       return result;
     }
 
-    const previous = this._state.fuelSeedByStation[stationKey];
+    const previous = this._state.fuelSeedByStation[seedKey] ||
+      (Number(configured.typeID) === 17887 ? this._state.fuelSeedByStation[stationKey] : null);
     const repairMissingSeed = Boolean(
       previous &&
       configured.repairAfterMarketRestart &&
@@ -364,8 +366,9 @@ class NpcMarketLiquidityService extends BaseService {
         bid: false,
         issued_at: new Date().toISOString(),
       });
-      this._state.fuelSeedByStation[stationKey] = {
+      this._state.fuelSeedByStation[seedKey] = {
         orderID,
+        typeID: configured.typeID,
         seededAtMs: nowMs,
         price,
         quantity: configured.quantity,
@@ -449,10 +452,17 @@ class NpcMarketLiquidityService extends BaseService {
     this._state.cursorByStation[key] = items.length > 0
       ? (start + selected.length) % items.length
       : 0;
-    const seedHubs = new Set((this._config.hubFuelSeed.hubStationIDs || []).map(Number));
-    const fuelSeedResult = seedHubs.has(Number(station.stationID))
-      ? await this._processFuelSeed(station, this._fuelSeedItem(), existing, nowMs)
-      : {created: 0, replaced: 0, skipped: 0, failed: 0};
+    const fuelSeedResult = {created: 0, replaced: 0, skipped: 0, failed: 0, entries: []};
+    for (const configured of this._config.fuelSeeds || []) {
+      const seedHubs = new Set((configured.hubStationIDs || []).map(Number));
+      if (configured.enabled === false || !seedHubs.has(Number(station.stationID))) continue;
+      const result = await this._processFuelSeed(station, configured, existing, nowMs);
+      fuelSeedResult.entries.push({typeID: configured.typeID, name: configured.name, ...result});
+      fuelSeedResult.created += result.created;
+      fuelSeedResult.replaced += result.replaced;
+      fuelSeedResult.skipped += result.skipped;
+      fuelSeedResult.failed += result.failed;
+    }
     let created = fuelSeedResult.created;
     let replaced = 0;
     let skipped = fuelSeedResult.skipped;
@@ -511,12 +521,12 @@ class NpcMarketLiquidityService extends BaseService {
       `Created: ${totals.created} | Replaced: ${totals.replaced} | ` +
         `Skipped: ${totals.skipped} | Failed: ${totals.failed}`,
       `Manifest fallback: ${totals.manifestFallback} | Calculated fallback: ${totals.calculatedFallback}`,
-      `Oxygen seed: created ${totals.seedCreated} | skipped ${totals.seedSkipped} | failed ${totals.seedFailed}`,
+      `Fuel seeds: created ${totals.seedCreated} | skipped ${totals.seedSkipped} | failed ${totals.seedFailed}`,
       ...hubs
         .filter((hub) => hub.created > 0 || hub.replaced > 0 || hub.skipped > 0 || hub.failed > 0 ||
           hub.fuelSeed && (hub.fuelSeed.created > 0 || hub.fuelSeed.skipped > 0 || hub.fuelSeed.failed > 0))
         .map((hub) => `- ${hub.stationName} (${hub.stationID}): created ${hub.created}, replaced ${hub.replaced}, skipped ${hub.skipped}, failed ${hub.failed}; ` +
-          `fuel seed created ${hub.fuelSeed.created}, skipped ${hub.fuelSeed.skipped}, failed ${hub.fuelSeed.failed}`),
+          `fuel seeds created ${hub.fuelSeed.created}, skipped ${hub.fuelSeed.skipped}, failed ${hub.fuelSeed.failed}`),
     ];
     try {
       await sendWebhook(this._config.discordWebhookUrl, lines.join("\n"));

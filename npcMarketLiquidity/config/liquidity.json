@@ -15,20 +15,12 @@
   "priceManifestEnabled": true,
   "priceManifestPath": "mods/npcMarketLiquidity/data/price-manifest.json",
   "allowCalculatedManifestPrices": true,
-  "hubFuelSeed": {
-    "enabled": true,
-    "typeID": 17887,
-    "quantity": 100000,
-    "sellOnly": true,
-    "repairAfterMarketRestart": true,
-    "hubStationIDs": [
-      60003760,
-      60008494,
-      60011866,
-      60004588,
-      60005686
-    ]
-  },
+  "fuelSeeds": [
+    {"enabled": true, "typeID": 17889, "name": "Hydrogen Isotopes", "quantity": 100000, "sellOnly": true, "repairAfterMarketRestart": true, "hubStationIDs": [60003760, 60008494, 60011866, 60004588, 60005686]},
+    {"enabled": true, "typeID": 16274, "name": "Helium Isotopes", "quantity": 100000, "sellOnly": true, "repairAfterMarketRestart": true, "hubStationIDs": [60003760, 60008494, 60011866, 60004588, 60005686]},
+    {"enabled": true, "typeID": 17888, "name": "Nitrogen Isotopes", "quantity": 100000, "sellOnly": true, "repairAfterMarketRestart": true, "hubStationIDs": [60003760, 60008494, 60011866, 60004588, 60005686]},
+    {"enabled": true, "typeID": 17887, "name": "Oxygen Isotopes", "quantity": 100000, "sellOnly": true, "repairAfterMarketRestart": true, "hubStationIDs": [60003760, 60008494, 60011866, 60004588, 60005686]}
+  ],
   "hubStationIDs": [
     60003760,
     60008494,

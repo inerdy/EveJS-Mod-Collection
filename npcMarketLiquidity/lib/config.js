@@ -18,14 +18,45 @@ const DEFAULT_SELL_TIERS = [
   {id: "fair", multiplier: 1.25, weight: 55},
   {id: "poor", multiplier: 1.8, weight: 20},
 ];
-const DEFAULT_HUB_FUEL_SEED = Object.freeze({
-  enabled: true,
-  typeID: 17887,
-  quantity: 100000,
-  sellOnly: true,
-  repairAfterMarketRestart: true,
-  hubStationIDs: DEFAULT_HUBS,
-});
+const DEFAULT_FUEL_SEEDS = Object.freeze([
+  Object.freeze({
+    enabled: true,
+    typeID: 17889,
+    name: "Hydrogen Isotopes",
+    quantity: 100000,
+    sellOnly: true,
+    repairAfterMarketRestart: true,
+    hubStationIDs: DEFAULT_HUBS,
+  }),
+  Object.freeze({
+    enabled: true,
+    typeID: 16274,
+    name: "Helium Isotopes",
+    quantity: 100000,
+    sellOnly: true,
+    repairAfterMarketRestart: true,
+    hubStationIDs: DEFAULT_HUBS,
+  }),
+  Object.freeze({
+    enabled: true,
+    typeID: 17888,
+    name: "Nitrogen Isotopes",
+    quantity: 100000,
+    sellOnly: true,
+    repairAfterMarketRestart: true,
+    hubStationIDs: DEFAULT_HUBS,
+  }),
+  Object.freeze({
+    enabled: true,
+    typeID: 17887,
+    name: "Oxygen Isotopes",
+    quantity: 100000,
+    sellOnly: true,
+    repairAfterMarketRestart: true,
+    hubStationIDs: DEFAULT_HUBS,
+  }),
+]);
+const DEFAULT_HUB_FUEL_SEED = DEFAULT_FUEL_SEEDS[DEFAULT_FUEL_SEEDS.length - 1];
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
@@ -44,6 +75,7 @@ const DEFAULT_CONFIG = Object.freeze({
   priceManifestEnabled: true,
   priceManifestPath: DEFAULT_PRICE_MANIFEST_PATH,
   allowCalculatedManifestPrices: true,
+  fuelSeeds: DEFAULT_FUEL_SEEDS,
   hubFuelSeed: DEFAULT_HUB_FUEL_SEED,
   discordWebhookUrl: "",
   discordNotifyWhenEmpty: false,
@@ -79,16 +111,44 @@ function normalizeTiers(value, fallback) {
   return tiers.length > 0 ? tiers : fallback.map((entry) => ({...entry}));
 }
 
-function normalizeHubFuelSeed(value) {
+function normalizeFuelSeed(value, fallback = DEFAULT_HUB_FUEL_SEED) {
   const source = value && typeof value === "object" ? value : {};
   return {
-    enabled: source.enabled !== false,
-    typeID: integer(source.typeID, DEFAULT_HUB_FUEL_SEED.typeID, 1, 1000000000),
-    quantity: integer(source.quantity, DEFAULT_HUB_FUEL_SEED.quantity, 1, 1000000000),
-    sellOnly: source.sellOnly !== false,
-    repairAfterMarketRestart: source.repairAfterMarketRestart !== false,
-    hubStationIDs: positiveIDs(source.hubStationIDs, DEFAULT_HUB_FUEL_SEED.hubStationIDs),
+    enabled: source.enabled !== undefined ? source.enabled !== false : fallback.enabled !== false,
+    typeID: integer(source.typeID, fallback.typeID, 1, 1000000000),
+    name: String(source.name || fallback.name || `Fuel ${source.typeID || fallback.typeID}`).trim() || `Fuel ${fallback.typeID}`,
+    quantity: integer(source.quantity, fallback.quantity, 1, 1000000000),
+    sellOnly: source.sellOnly !== undefined ? source.sellOnly !== false : fallback.sellOnly !== false,
+    repairAfterMarketRestart: source.repairAfterMarketRestart !== undefined
+      ? source.repairAfterMarketRestart !== false
+      : fallback.repairAfterMarketRestart !== false,
+    hubStationIDs: positiveIDs(source.hubStationIDs, fallback.hubStationIDs),
   };
+}
+
+function normalizeFuelSeeds(value, legacyValue) {
+  const source = Array.isArray(value) && value.length > 0
+    ? value
+    : DEFAULT_FUEL_SEEDS;
+  const legacy = legacyValue && typeof legacyValue === "object"
+    ? normalizeFuelSeed(legacyValue, DEFAULT_HUB_FUEL_SEED)
+    : null;
+  const entries = source.map((entry) => {
+    const fallback = DEFAULT_FUEL_SEEDS.find((candidate) =>
+      Number(candidate.typeID) === Number(entry && entry.typeID)) || DEFAULT_HUB_FUEL_SEED;
+    return normalizeFuelSeed(entry, fallback);
+  });
+  if (legacy && !Array.isArray(value)) {
+    const index = entries.findIndex((entry) => entry.typeID === legacy.typeID);
+    if (index >= 0) entries[index] = legacy;
+    else entries.push(legacy);
+  }
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (seen.has(entry.typeID)) return false;
+    seen.add(entry.typeID);
+    return true;
+  });
 }
 
 function resolveConfiguredPath(value, fallback) {
@@ -116,7 +176,11 @@ function normalizeConfig(value = {}) {
     priceManifestEnabled: source.priceManifestEnabled !== false,
     priceManifestPath: resolveConfiguredPath(source.priceManifestPath, DEFAULT_PRICE_MANIFEST_PATH),
     allowCalculatedManifestPrices: source.allowCalculatedManifestPrices !== false,
-    hubFuelSeed: normalizeHubFuelSeed(source.hubFuelSeed || source.fuelSeed),
+    fuelSeeds: normalizeFuelSeeds(source.fuelSeeds, source.hubFuelSeed || source.fuelSeed),
+    hubFuelSeed: normalizeFuelSeed(
+      source.hubFuelSeed || source.fuelSeed || DEFAULT_HUB_FUEL_SEED,
+      DEFAULT_HUB_FUEL_SEED,
+    ),
     discordWebhookUrl: String(source.discordWebhookUrl || "").trim(),
     discordNotifyWhenEmpty: source.discordNotifyWhenEmpty === true,
     hubStationIDs: positiveIDs(source.hubStationIDs, DEFAULT_HUBS),
@@ -144,6 +208,7 @@ function loadConfig(configPath = CONFIG_PATH) {
 module.exports = {
   CONFIG_PATH,
   DEFAULT_CONFIG,
+  DEFAULT_FUEL_SEEDS,
   DEFAULT_PRICE_MANIFEST_PATH,
   LOCAL_CONFIG_PATH,
   loadConfig,

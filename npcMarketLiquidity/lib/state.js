@@ -39,12 +39,14 @@ function normalizeState(value = {}) {
     ? source.fuelSeedByStation
     : {};
   for (const [stationID, value] of Object.entries(sourceFuelSeeds)) {
-    if (!/^\d+$/.test(String(stationID)) || !value || typeof value !== "object") continue;
+    if (!/^\d+(?::\d+)?$/.test(String(stationID)) || !value || typeof value !== "object") continue;
     fuelSeedByStation[String(stationID)] = {
       orderID: String(value.orderID || "").trim(),
+      typeID: Math.max(0, Math.trunc(Number(value.typeID) || 0)),
       seededAtMs: Math.max(0, Number(value.seededAtMs) || 0),
       price: Math.max(0, Number(value.price) || 0),
       quantity: Math.max(0, Math.trunc(Number(value.quantity) || 0)),
+      referenceSource: String(value.referenceSource || ""),
     };
   }
   return {

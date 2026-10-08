@@ -10,11 +10,11 @@ bounded batch once per hour, so it does not try to create thousands of orders
 in one server tick. Orders are synthetic NPC liquidity: they do not consume a
 player’s inventory or wallet.
 
-When `hubFuelSeed` is enabled, the mod also creates one 100,000-unit Oxygen
-Isotope sell order at each hub. The price uses that hub's current average
-market reference. These dedicated seed orders are idempotent, are not
-continuously replenished after being sold, and can be repaired after the
-market daemon restarts.
+When `fuelSeeds` is enabled, the mod also creates one 100,000-unit sell order
+for each configured isotope at each configured hub. The price uses that hub's
+current average market reference or the bundled manifest fallback. These
+dedicated seed orders are idempotent, are not continuously replenished after
+being sold, and can be repaired after the market daemon restarts.
 
 ## Requirements and installation
 
@@ -61,10 +61,13 @@ stopped, then restart the Game server.
 - `allowCalculatedManifestPrices`: allows the manifest's calculated entries
   to seed items that have no live CCP or Jita reference. This is enabled by
   default so items without existing orders can still be populated.
-- `hubFuelSeed`: controls the dedicated Oxygen Isotope seed. It defaults to type
-  ID `17887`, 100,000 sell units per configured hub, and repair-after-restart
-  enabled. Its `hubStationIDs` list defaults to Jita, Amarr, Dodixie, Rens, and
-  Hek. Each seed price comes from that station's current market summary.
+- `fuelSeeds`: controls the one-time isotope seeds. The default list contains
+  Hydrogen `17889`, Helium `16274`, Nitrogen `17888`, and Oxygen `17887`, with
+  100,000 sell units per configured hub and repair-after-restart enabled. Each
+  entry has its own `hubStationIDs` list and uses that station's current market
+  summary or the manifest fallback.
+- `hubFuelSeed`: legacy single-seed compatibility. New configurations should
+  use `fuelSeeds`.
 - `discordWebhookUrl`: optional Discord webhook URL. Keep secrets in the
   ignored `config/liquidity.local.json` file or use the
   `NPC_MARKET_LIQUIDITY_DISCORD_WEBHOOK_URL` environment variable.

@@ -1,8 +1,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const {normalizeConfig} = require(path.join(__dirname, "..", "lib", "config"));
+const {normalizeState} = require(path.join(__dirname, "..", "lib", "state"));
 const pricing = require(path.join(__dirname, "..", "lib", "pricing"));
 const discord = require(path.join(__dirname, "..", "lib", "discord"));
 const service = require(path.join(__dirname, "..", "lib", "npcMarketLiquidityService"));
@@ -10,11 +12,19 @@ const service = require(path.join(__dirname, "..", "lib", "npcMarketLiquiditySer
 const config = normalizeConfig({});
 assert.equal(config.hubStationIDs.length, 5);
 assert.equal(config.ordersPerSide, 3);
-assert.equal(config.hubFuelSeed.enabled, true);
+assert.equal(config.fuelSeeds.length, 4);
+assert.deepEqual(config.fuelSeeds.map((seed) => seed.typeID), [17889, 16274, 17888, 17887]);
 assert.equal(config.hubFuelSeed.typeID, 17887);
-assert.equal(config.hubFuelSeed.quantity, 100000);
-assert.equal(config.hubFuelSeed.sellOnly, true);
-assert.deepEqual(config.hubFuelSeed.hubStationIDs, [60003760, 60008494, 60011866, 60004588, 60005686]);
+assert.equal(config.fuelSeeds.every((seed) => seed.enabled && seed.quantity === 100000 && seed.sellOnly), true);
+assert.equal(config.fuelSeeds.every((seed) => seed.hubStationIDs.length === 5), true);
+const migratedState = normalizeState({fuelSeedByStation: {
+  "60003760": {orderID: "41", typeID: 17887, quantity: 100000},
+  "60003760:17889": {orderID: "42", typeID: 17889, quantity: 100000},
+}});
+assert.equal(migratedState.fuelSeedByStation["60003760"].orderID, "41");
+assert.equal(migratedState.fuelSeedByStation["60003760:17889"].orderID, "42");
+const marketManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "evejs-launcher.mod.json"), "utf8"));
+assert.equal(marketManifest.version, "0.4.0");
 assert.equal(config.priceManifestEnabled, true);
 assert.equal(config.allowCalculatedManifestPrices, true);
 assert.equal(config.priceManifestPath.endsWith(path.join("mods", "npcMarketLiquidity", "data", "price-manifest.json")), true);
