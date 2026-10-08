@@ -1,8 +1,8 @@
 {
   "enabled": true,
   "clearExistingContractsOnce": true,
-  "wipeAllActiveContractsOnce": true,
-  "legacyCleanupVersion": 5,
+  "wipeAllActiveContractsOnce": false,
+  "legacyCleanupVersion": 6,
   "initialDelayMs": 30000,
   "tickIntervalMs": 300000,
   "contractsPerOrigin": 10,
