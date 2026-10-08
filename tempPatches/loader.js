@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "temppatches";
-const MOD_VERSION = "0.2.3";
+const MOD_VERSION = "0.2.4";
 const INSTALL_FLAG = Symbol.for("evejs.tempPatches.loaderInstalled");
 const LOAD_HOOK_FLAG = Symbol.for("evejs.tempPatches.loadHookInstalled");
 const PATCH_FLAG = Symbol.for("evejs.tempPatches.dungeonWavePatchInstalled");
@@ -67,6 +67,9 @@ const DEFAULT_CONTAINER_RANGE_METERS = 2_500;
 const DUNGEON_DIAGNOSTICS_ENABLED = String(
   process.env.EVEJS_TEMP_PATCHES_DIAGNOSTICS || "1",
 ).trim() !== "0";
+const TERMINAL_SITE_MARKER_CLEANUP_ENABLED = String(
+  process.env.EVEJS_TEMP_PATCHES_TERMINAL_SITE_CLEANUP || "0",
+).trim() === "1";
 
 function log(message) {
   console.log(`[${MOD_ID}] ${message}`);
@@ -632,7 +635,9 @@ function install() {
     return globalThis[INSTALL_FLAG];
   }
   installLazyRuntimeHook();
-  dungeonTerminalSiteTickPatch.installTerminalSiteMarkerCleanup();
+  if (TERMINAL_SITE_MARKER_CLEANUP_ENABLED) {
+    dungeonTerminalSiteTickPatch.installTerminalSiteMarkerCleanup();
+  }
   const state = Object.freeze({
     active: true,
     id: MOD_ID,
@@ -659,6 +664,7 @@ module.exports = Object.freeze({
     INV_BROKER_SERVICE_PATH,
     RECONCILE_DELAYS_MS,
     DUNGEON_DIAGNOSTICS_ENABLED,
+    TERMINAL_SITE_MARKER_CLEANUP_ENABLED,
     DUNGEON_TRACKING_RUNTIME_PATH,
     DUNGEON_CACHE_MGR_SERVICE_PATH,
     buildContainerOutOfRangeMessage,

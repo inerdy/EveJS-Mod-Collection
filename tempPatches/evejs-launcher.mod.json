@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "temppatches",
   "displayName": "Temporary Patches",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Temporary EveJS fixes for dungeon waves, anomaly performance, terminal-site processing, completion UI state, diagnostics, and far-container messages.",
   "kind": "loader",
   "supportedBackends": ["native"],

@@ -21,7 +21,10 @@ handler is used as a fallback.
 It also stops the one-second dungeon behavior loop from repeatedly processing a
 site that has already reached a terminal state while the player is still inside
 the occupancy-grace window. The normal teardown and grace period remain
-unchanged; only the completed site's active-processing marker is removed.
+unchanged; only the completed site's active-processing marker is removed. This
+patch is currently disabled by default because it needs more startup testing.
+Enable it explicitly with `EVEJS_TEMP_PATCHES_TERMINAL_SITE_CLEANUP=1` after
+the server startup issue is resolved.
 
 The cleared-anomaly respawn cooldown is provided by the separate
 `dungeonRespawnCooldown` mod. Keeping that behavior separate makes it possible
