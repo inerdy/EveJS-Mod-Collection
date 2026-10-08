@@ -24,6 +24,7 @@ _COLOR_HEALTHY = '0xff71e6a3'
 _COLOR_DEGRADED = '0xffffd166'
 _COLOR_STALLED = '0xffff6b6b'
 _COLOR_TRANSITION = '0xff8fd8ff'
+_COLOR_ACTIVE = '0xff71e6a3'
 _COLOR_VALUE = '0xffffffff'
 _GM_ROLE_MASK = (
     274877906944 |       # GMS
