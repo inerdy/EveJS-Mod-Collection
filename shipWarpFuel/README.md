@@ -63,7 +63,7 @@ emergency fuel ship. It delivers 25 units of the selected isotope, charges
 1,000,000 ISK, and has a 15-minute character cooldown. The service ship warps
 in from 1 AU, approaches the player, delivers the fuel, and then warps away
 before it is removed. The emergency button is only shown when the active ship
-has no fuel of the selected type. If the wallet is short, the available
+has no fuel of the selected type and the character is undocked in space. If the wallet is short, the available
 balance is charged and the remainder is tracked as debt for later collection.
 
 ## Installation

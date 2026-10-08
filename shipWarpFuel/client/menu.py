@@ -53,11 +53,13 @@ def _route_entry_id(entry):
     integer_types = (int, long)
     if isinstance(entry, integer_types):
         return int(entry) if int(entry) > 0 else None
-    if isinstance(entry, dict):
-        for key in ('solarSystemID', 'systemID', 'solarsystemid2', 'solarSystemId'):
+    for key in ('solarSystemID', 'systemID', 'solarsystemid2', 'solarSystemId'):
+        if isinstance(entry, dict):
             value = _integer(entry.get(key), 0)
-            if value > 0:
-                return value
+        else:
+            value = _integer(getattr(entry, key, 0), 0)
+        if value > 0:
+            return value
     return None
 
 
@@ -65,9 +67,20 @@ def _route_ids(value):
     if isinstance(value, dict):
         for key in ('path', 'route', 'systems', 'systemIDs', 'solarSystems'):
             if key in value:
-                return _route_ids(value.get(key))
+                route_ids = _route_ids(value.get(key))
+                if route_ids:
+                    return route_ids
         entry_id = _route_entry_id(value)
         return [entry_id] if entry_id else []
+    for key in ('path', 'route', 'systems', 'systemIDs', 'solarSystems'):
+        candidate = getattr(value, key, None)
+        if candidate is not None:
+            route_ids = _route_ids(candidate)
+            if route_ids:
+                return route_ids
+    entry_id = _route_entry_id(value)
+    if entry_id:
+        return [entry_id]
     if isinstance(value, (list, tuple)):
         result = []
         for entry in value:
@@ -77,8 +90,7 @@ def _route_ids(value):
             else:
                 result.extend(_route_ids(entry))
         return result
-    entry_id = _route_entry_id(value)
-    return [entry_id] if entry_id else []
+    return []
 
 
 class ShipWarpFuelWindow(Window):
@@ -224,19 +236,29 @@ class ShipWarpFuelWindow(Window):
         try:
             current_system = _integer(getattr(session, 'solarsystemid2', 0), 0)
             route = None
-            for service_name in ('starmap', 'route', 'map'):
+            for service_name in ('starmap', 'route', 'map', 'autopilot', 'autoPilot'):
                 try:
                     route_service = sm.GetService(service_name)
                 except Exception:
                     continue
-                for method_name in ('GetDestinationPath', 'GetCurrentRoute', 'GetRoute'):
+                for method_name in (
+                    'GetDestinationPath',
+                    'GetAutopilotRoute',
+                    'GetCurrentRoute',
+                    'GetRoute',
+                    'GetPathToDestination',
+                    'GetDestination',
+                ):
                     method = getattr(route_service, method_name, None)
                     if not callable(method):
                         continue
                     try:
                         candidate = _route_ids(method())
                     except Exception:
-                        continue
+                        try:
+                            candidate = _route_ids(method(current_system))
+                        except Exception:
+                            continue
                     if candidate:
                         route = candidate
                         break
@@ -346,7 +368,8 @@ class ShipWarpFuelWindow(Window):
                 if cooldown > 0 else
                 'Request Emergency Fuel'
             )
-        if fuel <= 0:
+        in_space = state.get('inSpace') is True
+        if fuel <= 0 and in_space:
             self._emergency.state = (
                 uiconst.UI_DISABLED
                 if self._emergency_request_pending
@@ -354,7 +377,7 @@ class ShipWarpFuelWindow(Window):
             )
         else:
             self._emergency.state = uiconst.UI_HIDDEN
-        self._details.state = uiconst.UI_NORMAL if fuel <= 0 else uiconst.UI_HIDDEN
+        self._details.state = uiconst.UI_NORMAL if fuel <= 0 and in_space else uiconst.UI_HIDDEN
         self._details.SetText(
             '%s %s ISK\n%s' % (
                 _color(_COLOR_LABEL, 'Emergency fuel debt:'),

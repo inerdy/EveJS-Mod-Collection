@@ -53,6 +53,8 @@ assert.equal(testing.distanceMeters({x: 0, y: 0, z: 0}, {x: 3, y: 4, z: 0}), 5);
 assert.equal(testing.distanceMeters(null, {x: 1, y: 2, z: 3}), 0);
 assert.equal(testing.quantityOf({singleton: 1}), 1);
 assert.equal(testing.quantityOf({singleton: 0, quantity: 25}), 25);
+assert.equal(testing.isInSpaceSession({characterID: 42, _space: {shipID: 900, systemID: 30000002}}), true);
+assert.equal(testing.isInSpaceSession({characterID: 42, stationid: 60003760}), false);
 assert.equal(testing.classifyShip({groupName: "Frigate"}), "frigate");
 assert.equal(testing.classifyShip({groupName: "Corvette"}), "corvette");
 assert.equal(testing.classifyShip({groupName: "Shuttle"}), "shuttle");
@@ -100,6 +102,7 @@ const cargoRows = new Map([[701, {
 }]]);
 const fakeItemStore = {
   ITEM_FLAGS: {FUEL_BAY: 133, CARGO_HOLD: 5},
+  getActiveShipItem: () => ({itemID: 900, name: "Test Ship", typeID: 9001, groupName: "Destroyer"}),
   findCharacterShipItem: () => ({itemID: 900, name: "Test Ship", typeID: 9001, groupName: "Destroyer"}),
   findShipItemById: () => ({itemID: 900, name: "Test Ship", typeID: 9001, groupName: "Destroyer"}),
   listContainerItems: (_ownerID, shipID, flagID) => {
@@ -225,6 +228,10 @@ assert.equal(switched.fuelName, "Hydrogen Isotopes");
 const switchedEstimate = JSON.parse(fuelService.Handle_GetWaypointFuelEstimate([{hasRoute: true, jumps: 1}], session));
 assert.equal(switchedEstimate.fuelRequired, 29);
 JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17887}], session));
+const dockedSession = {characterID: 42, stationid: 60003760};
+const dockedSwitch = JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17889}], dockedSession));
+assert.equal(dockedSwitch.fuelTypeID, 17889);
+JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17887}], session));
 
 const loader = fs.readFileSync(path.join(modRoot, "loader.js"), "utf8");
 assert.match(loader, /serviceManager\.js/u);
@@ -242,6 +249,8 @@ assert.match(client, /GetWaypointFuelEstimate/u);
 assert.match(client, /SetFuelType/u);
 assert.match(client, /Waypoint estimate:/u);
 assert.match(client, /Switch Fuel:/u);
+assert.match(client, /GetAutopilotRoute/u);
+assert.match(client, /inSpace/u);
 assert.match(client, /ScrollContainer/u);
 assert.match(client, /parent=self\._body/u);
 assert.match(client, /mods\.register/u);
@@ -249,7 +258,7 @@ assert.equal(client.includes('Cargo Oxygen:'), false);
 assert.equal(client.includes('Contents:'), false);
 assert.ok(client.indexOf('self._odometer =') < client.indexOf('self._load_button ='));
 assert.match(client, /UI_HIDDEN/u);
-assert.match(client, /self\._details\.state = uiconst\.UI_NORMAL if fuel <= 0 else uiconst\.UI_HIDDEN/u);
+assert.match(client, /self\._details\.state = uiconst\.UI_NORMAL if fuel <= 0 and in_space else uiconst\.UI_HIDDEN/u);
 assert.match(client, /_emergency_request_pending/u);
 assert.match(client, /Emergency fuel ship: on the way/u);
 assert.match(client, /UI_DISABLED/u);
@@ -262,6 +271,8 @@ assert.match(service, /_sendServiceShipAway/u);
 assert.match(service, /Emergency fuel ship is on the way/u);
 assert.match(service, /Handle_GetWaypointFuelEstimate/u);
 assert.match(service, /Handle_SetFuelType/u);
+assert.match(service, /EMERGENCY_FUEL_REQUIRES_SPACE/u);
+assert.match(service, /isInSpaceSession/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {
