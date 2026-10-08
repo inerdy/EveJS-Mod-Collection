@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "capacityMode": "baseCargo",
+  "minimumCapacityM3": 0.01
+}

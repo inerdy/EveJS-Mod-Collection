@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "shipfuelbays",
+  "displayName": "Ship Fuel Bays",
+  "version": "0.1.0",
+  "description": "Adds dedicated fuel-bay inventory capacity to ships that do not have a native fuel bay.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["0.12.9"]}
+}
