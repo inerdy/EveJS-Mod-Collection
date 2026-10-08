@@ -6,13 +6,7 @@ const path = require("node:path");
 const CONFIG_PATH = path.join(__dirname, "..", "config", "liquidity.json");
 const LOCAL_CONFIG_PATH = path.join(__dirname, "..", "config", "liquidity.local.json");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
-const DEFAULT_PRICE_MANIFEST_PATH = path.join(
-  REPO_ROOT,
-  "tools",
-  "market-seederv3",
-  "data",
-  "price-manifest.json",
-);
+const DEFAULT_PRICE_MANIFEST_PATH = path.join(__dirname, "..", "data", "price-manifest.json");
 const DEFAULT_HUBS = [60003760, 60008494, 60011866, 60004588, 60005686];
 const DEFAULT_BUY_TIERS = [
   {id: "poor", multiplier: 0.55, weight: 20},

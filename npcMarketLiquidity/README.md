@@ -55,8 +55,9 @@ stopped, then restart the Game server.
   book by default.
 - `priceManifestEnabled`: enables the automatic market-seederv3 fallback.
 - `priceManifestPath`: repository-relative or absolute path to
-  `price-manifest.json`. The default is
-  `tools/market-seederv3/data/price-manifest.json`.
+  `price-manifest.json`. The default bundled file is
+  `mods/npcMarketLiquidity/data/price-manifest.json`, so the mod works when
+  installed by itself.
 - `allowCalculatedManifestPrices`: allows the manifest's calculated entries
   to seed items that have no live CCP or Jita reference. This is enabled by
   default so items without existing orders can still be populated.
@@ -83,8 +84,9 @@ such as `cost-recursive`, `derived-compressed-twin`, and
 `reprocessing-floor` are calculated references used only when no captured
 market price exists. The loader logs how many real and calculated entries it
 loaded, and each scheduler pass reports how many items used the fallback.
-Refresh the manifest with market-seederv3 after rebuilding the market seed if
-current Tranquility prices are desired.
+Refresh the manifest with market-seederv3 when current Tranquility prices are
+desired, then replace the bundled `data/price-manifest.json` before packaging
+the mod release.
 
 When Discord is configured, one summary message is sent after each pass that
 creates, replaces, or evaluates a dedicated hub fuel seed. A failed Discord

@@ -13,7 +13,7 @@
   "staleAfterMs": 604800000,
   "minimumSpreadRatio": 0.02,
   "priceManifestEnabled": true,
-  "priceManifestPath": "tools/market-seederv3/data/price-manifest.json",
+  "priceManifestPath": "mods/npcMarketLiquidity/data/price-manifest.json",
   "allowCalculatedManifestPrices": true,
   "hubFuelSeed": {
     "enabled": true,

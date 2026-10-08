@@ -17,7 +17,7 @@ assert.equal(config.hubFuelSeed.sellOnly, true);
 assert.deepEqual(config.hubFuelSeed.hubStationIDs, [60003760, 60008494, 60011866, 60004588, 60005686]);
 assert.equal(config.priceManifestEnabled, true);
 assert.equal(config.allowCalculatedManifestPrices, true);
-assert.equal(config.priceManifestPath.endsWith(path.join("tools", "market-seederv3", "data", "price-manifest.json")), true);
+assert.equal(config.priceManifestPath.endsWith(path.join("mods", "npcMarketLiquidity", "data", "price-manifest.json")), true);
 assert.equal(service._testing.eligibleItem({typeID: 34, published: true, marketGroupID: 18, volume: 0.01, portionSize: 1}), true);
 assert.equal(service._testing.eligibleItem({typeID: 34, published: true, marketGroupID: null, volume: 0.01, portionSize: 1}), false);
 assert.equal(service._testing.quantityForItem({volume: 0.01}, config), 500000);
