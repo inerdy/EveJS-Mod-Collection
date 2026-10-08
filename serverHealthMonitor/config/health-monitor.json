@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "sampleIntervalMs": 1000,
+  "historyMinutes": 5,
+  "thresholds": {
+    "degradedEventLoopDelayMs": 100,
+    "stalledEventLoopDelayMs": 2000,
+    "degradedTickDurationMs": 250,
+    "stalledTickDurationMs": 2000,
+    "degradedTickLatenessMs": 100,
+    "stalledTickLatenessMs": 2000
+  },
+  "logging": {
+    "enabled": true,
+    "maxBytes": 5242880
+  }
+}
