@@ -18,6 +18,11 @@ avoids cloning the full dungeon summary collection whenever the Probe Scanner
 requests combat anomalies. If the projection cannot be built, the native
 handler is used as a fallback.
 
+It also stops the one-second dungeon behavior loop from repeatedly processing a
+site that has already reached a terminal state while the player is still inside
+the occupancy-grace window. The normal teardown and grace period remain
+unchanged; only the completed site's active-processing marker is removed.
+
 The cleared-anomaly respawn cooldown is provided by the separate
 `dungeonRespawnCooldown` mod. Keeping that behavior separate makes it possible
 to disable this temporary bug-fix package without changing anomaly respawn

@@ -11,7 +11,7 @@ const manifest = JSON.parse(
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "temppatches");
-assert.equal(manifest.version, "0.2.1");
+assert.equal(manifest.version, "0.2.2");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -32,6 +32,8 @@ const {
   patchDungeonTrackingRuntime,
   patchDungeonInstanceCacheMgrService,
   buildCombatProjection,
+  sweepTerminalSiteMarkers,
+  resolveTerminalSiteInstanceID,
   shouldReconcile,
 } =
   tempPatches._testing;
@@ -103,6 +105,35 @@ class FakeCacheMgrService {
   Handle_GetCombatAnomaliesCount() { return "native-count"; }
 }
 assert.equal(patchDungeonInstanceCacheMgrService(FakeCacheMgrService), true);
+const terminalSite = {
+  _dungeonUniverseMaterializedSiteIDs: new Set([7001, 7002]),
+  _dungeonUniverseMaterializedInstanceIDsBySiteID: new Map([
+    [7001, 8001],
+    [7002, 8002],
+  ]),
+};
+const terminalRuntime = {scenes: new Map([[30000142, terminalSite]])};
+const terminalDungeonRuntime = {
+  getInstanceSummary(instanceID) {
+    return instanceID === 8001
+      ? {instanceID, lifecycleState: "completed"}
+      : {instanceID, lifecycleState: "active"};
+  },
+};
+assert.equal(
+  resolveTerminalSiteInstanceID(
+    terminalSite,
+    7001,
+    terminalSite._dungeonUniverseMaterializedInstanceIDsBySiteID,
+  ),
+  8001,
+);
+assert.equal(sweepTerminalSiteMarkers(terminalRuntime, terminalDungeonRuntime), 1);
+assert.deepEqual([...terminalSite._dungeonUniverseMaterializedSiteIDs], [7002]);
+assert.equal(
+  terminalSite._dungeonUniverseMaterializedInstanceIDsBySiteID.has(7001),
+  false,
+);
 assert.equal(isDungeonScopedEntity({dungeonMaterializedSiteContent: true}), true);
 assert.equal(isDungeonScopedEntity({dungeonSiteInstanceID: 42}), true);
 assert.equal(isDungeonScopedEntity({nativeNpc: true}), false);
@@ -214,6 +245,7 @@ assert.match(readme, /Docker/u);
 assert.match(readme, /game-server restart/u);
 assert.match(readme, /wave_cleared/u);
 assert.match(readme, /combat-anomaly cache projection/u);
+assert.match(readme, /terminal state/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {
@@ -231,6 +263,7 @@ assert.deepEqual(packageFiles.sort(), [
   "evejs-launcher.mod.json",
   "loader.js",
   "patches/dungeonAnomalyCachePatch.js",
+  "patches/dungeonTerminalSiteTickPatch.js",
   "test/validate.js",
 ]);
 

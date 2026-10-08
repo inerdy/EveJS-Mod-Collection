@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "temppatches";
-const MOD_VERSION = "0.2.1";
+const MOD_VERSION = "0.2.2";
 const INSTALL_FLAG = Symbol.for("evejs.tempPatches.loaderInstalled");
 const LOAD_HOOK_FLAG = Symbol.for("evejs.tempPatches.loadHookInstalled");
 const PATCH_FLAG = Symbol.for("evejs.tempPatches.dungeonWavePatchInstalled");
@@ -577,6 +577,11 @@ const dungeonAnomalyCachePatch = require(path.join(
   "patches",
   "dungeonAnomalyCachePatch.js",
 ));
+const dungeonTerminalSiteTickPatch = require(path.join(
+  __dirname,
+  "patches",
+  "dungeonTerminalSiteTickPatch.js",
+));
 
 function applyRuntimePatch(resolved, exported) {
   const resolvedPath = path.resolve(resolved);
@@ -627,6 +632,7 @@ function install() {
     return globalThis[INSTALL_FLAG];
   }
   installLazyRuntimeHook();
+  dungeonTerminalSiteTickPatch.installTerminalSiteMarkerCleanup();
   const state = Object.freeze({
     active: true,
     id: MOD_ID,
@@ -666,5 +672,9 @@ module.exports = Object.freeze({
     patchDungeonInstanceCacheMgrService:
       dungeonAnomalyCachePatch.patchDungeonInstanceCacheMgrService,
     buildCombatProjection: dungeonAnomalyCachePatch._testing.buildCombatProjection,
+    sweepTerminalSiteMarkers:
+      dungeonTerminalSiteTickPatch._testing.sweepTerminalSiteMarkers,
+    resolveTerminalSiteInstanceID:
+      dungeonTerminalSiteTickPatch._testing.resolveInstanceID,
   }),
 });
