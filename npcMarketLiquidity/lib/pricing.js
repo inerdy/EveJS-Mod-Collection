@@ -1,5 +1,12 @@
 "use strict";
 
+const fs = require("node:fs");
+
+const REAL_MARKET_SOURCES = new Set([
+  "ccp-esi-average",
+  "ccp-snapshot-jita-split",
+]);
+
 function hash(value) {
   let result = 2166136261;
   for (const character of String(value)) {
@@ -71,4 +78,85 @@ function buildAveragePrice(reference) {
   return null;
 }
 
-module.exports = {buildAveragePrice, buildPrice, buildReference, chooseTier, hash, roundPrice};
+function isRealMarketSource(source) {
+  return REAL_MARKET_SOURCES.has(String(source || "").trim().toLowerCase());
+}
+
+function normalizeManifestEntry(value) {
+  const price = Number(value && value.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  return {
+    price: Math.max(0.01, roundPrice(price)),
+    source: String(value && value.source || "manifest").trim() || "manifest",
+    capturedAt: String(value && value.capturedAt || "").trim(),
+  };
+}
+
+function loadPriceManifest(filePath, options = {}) {
+  const result = {
+    loaded: false,
+    filePath: String(filePath || ""),
+    generatedAt: "",
+    sdeBuild: null,
+    entries: new Map(),
+    realEntries: 0,
+    calculatedEntries: 0,
+    skippedEntries: 0,
+    error: "",
+  };
+  try {
+    const document = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const prices = document && document.prices && typeof document.prices === "object"
+      ? document.prices
+      : {};
+    const allowCalculated = options.allowCalculated !== false;
+    for (const [typeID, rawEntry] of Object.entries(prices)) {
+      const normalizedTypeID = Number(typeID);
+      const entry = normalizeManifestEntry(rawEntry);
+      if (!(normalizedTypeID > 0) || !entry) {
+        result.skippedEntries += 1;
+        continue;
+      }
+      const real = isRealMarketSource(entry.source);
+      if (!real && !allowCalculated) {
+        result.skippedEntries += 1;
+        continue;
+      }
+      result.entries.set(normalizedTypeID, entry);
+      if (real) result.realEntries += 1;
+      else result.calculatedEntries += 1;
+    }
+    result.loaded = true;
+    result.generatedAt = String(document && document.generatedAt || "");
+    result.sdeBuild = document && document.sdeBuild != null ? document.sdeBuild : null;
+  } catch (error) {
+    result.error = String(error && error.message || error);
+  }
+  return result;
+}
+
+function buildManifestReference(entry) {
+  const normalized = normalizeManifestEntry(entry);
+  if (!normalized) return null;
+  return {
+    bestAsk: null,
+    bestBid: null,
+    askReference: normalized.price,
+    bidReference: normalized.price,
+    source: normalized.source,
+    capturedAt: normalized.capturedAt,
+  };
+}
+
+module.exports = {
+  buildAveragePrice,
+  buildManifestReference,
+  buildPrice,
+  buildReference,
+  chooseTier,
+  hash,
+  isRealMarketSource,
+  loadPriceManifest,
+  normalizeManifestEntry,
+  roundPrice,
+};

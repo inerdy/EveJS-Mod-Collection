@@ -14,9 +14,12 @@ const {loadConfig} = require(path.join(__dirname, "config"));
 const {createStateStore, normalizeState} = require(path.join(__dirname, "state"));
 const {
   buildAveragePrice,
+  buildManifestReference,
   buildPrice,
   buildReference,
   chooseTier,
+  isRealMarketSource,
+  loadPriceManifest,
 } = require(path.join(__dirname, "pricing"));
 const {isConfigured: isDiscordConfigured, sendWebhook} = require(path.join(__dirname, "discord"));
 
@@ -113,6 +116,7 @@ class NpcMarketLiquidityService extends BaseService {
     this._startupTimer = null;
     this._tickInProgress = false;
     this._items = null;
+    this._priceManifest = null;
     this._daemonCapabilityVerified = false;
     this._daemonStartedAt = "";
     this._marketRestarted = false;
@@ -152,7 +156,49 @@ class NpcMarketLiquidityService extends BaseService {
       managedOrderCount: managedOrderIDs.size,
       lastTickAtMs: this._state.lastTickAtMs,
       statePath: this._stateStore.filePath,
+      priceManifest: this._priceManifestStatus(),
     };
+  }
+
+  _priceManifestStatus() {
+    return {
+      enabled: this._config.priceManifestEnabled,
+      path: this._config.priceManifestPath,
+      loaded: Boolean(this._priceManifest && this._priceManifest.loaded),
+      generatedAt: this._priceManifest ? this._priceManifest.generatedAt : "",
+      entries: this._priceManifest ? this._priceManifest.entries.size : 0,
+      realEntries: this._priceManifest ? this._priceManifest.realEntries : 0,
+      calculatedEntries: this._priceManifest ? this._priceManifest.calculatedEntries : 0,
+      skippedEntries: this._priceManifest ? this._priceManifest.skippedEntries : 0,
+      error: this._priceManifest ? this._priceManifest.error : "",
+    };
+  }
+
+  _loadPriceManifest() {
+    if (!this._config.priceManifestEnabled) return null;
+    if (this._priceManifest) return this._priceManifest;
+    this._priceManifest = loadPriceManifest(this._config.priceManifestPath, {
+      allowCalculated: this._config.allowCalculatedManifestPrices,
+    });
+    if (this._priceManifest.loaded) {
+      log.info(
+        `[${MOD_ID}] loaded price manifest entries=${this._priceManifest.entries.size} ` +
+        `real=${this._priceManifest.realEntries} calculated=${this._priceManifest.calculatedEntries} ` +
+        `generatedAt=${this._priceManifest.generatedAt || "unknown"}`,
+      );
+    } else {
+      log.warn(
+        `[${MOD_ID}] price manifest unavailable path=${this._config.priceManifestPath}: ` +
+        this._priceManifest.error,
+      );
+    }
+    return this._priceManifest;
+  }
+
+  _manifestReference(typeID) {
+    const manifest = this._loadPriceManifest();
+    const entry = manifest && manifest.entries.get(positive(typeID));
+    return buildManifestReference(entry);
   }
 
   _listItems() {
@@ -268,13 +314,19 @@ class NpcMarketLiquidityService extends BaseService {
       const row = (Array.isArray(summary) ? summary : []).find((entry) =>
         Number(entry && entry.type_id) === Number(item.typeID),
       );
-      const reference = row
+      let reference = row
         ? {
           bestAsk: Number(row.best_ask_price) > 0 ? Number(row.best_ask_price) : null,
           bestBid: Number(row.best_bid_price) > 0 ? Number(row.best_bid_price) : null,
         }
         : null;
-      const price = buildAveragePrice(reference);
+      let referenceSource = "local-market";
+      let price = buildAveragePrice(reference);
+      if (!(price > 0)) {
+        reference = this._manifestReference(item.typeID);
+        referenceSource = reference ? `manifest:${reference.source}` : "";
+        price = buildAveragePrice(reference);
+      }
       if (!(price > 0)) {
         result.skipped = 1;
         return result;
@@ -282,7 +334,7 @@ class NpcMarketLiquidityService extends BaseService {
       if (this._config.dryRun) {
         log.info(
           `[${MOD_ID}] dry-run fuel seed station=${station.stationID} ` +
-          `type=${item.typeID} price=${price} quantity=${configured.quantity}`,
+          `type=${item.typeID} price=${price} source=${referenceSource} quantity=${configured.quantity}`,
         );
         return result;
       }
@@ -317,6 +369,7 @@ class NpcMarketLiquidityService extends BaseService {
         seededAtMs: nowMs,
         price,
         quantity: configured.quantity,
+        referenceSource,
       };
       result.created = 1;
     } catch (error) {
@@ -404,14 +457,21 @@ class NpcMarketLiquidityService extends BaseService {
     let replaced = 0;
     let skipped = fuelSeedResult.skipped;
     let failed = fuelSeedResult.failed;
+    let manifestFallback = 0;
+    let calculatedFallback = 0;
     let openAtHub = existing.filter((order) => String(order.state) === "open" && positive(order.station_id) === station.stationID).length;
     for (const item of selected) {
       if (openAtHub >= this._config.maxActiveOrdersPerHub) break;
       const book = await marketDaemonClient.call("GetOrders", {region_id: station.regionID, type_id: item.typeID});
-      const reference = buildReference(book, this._config.minimumSpreadRatio);
+      let reference = buildReference(book, this._config.minimumSpreadRatio);
       if (!reference) {
-        skipped += 1;
-        continue;
+        reference = this._manifestReference(item.typeID);
+        if (!reference) {
+          skipped += 1;
+          continue;
+        }
+        manifestFallback += 1;
+        if (!isRealMarketSource(reference.source)) calculatedFallback += 1;
       }
       for (const side of ["buy", "sell"]) {
         for (let slot = 0; slot < this._config.ordersPerSide; slot += 1) {
@@ -422,7 +482,11 @@ class NpcMarketLiquidityService extends BaseService {
         }
       }
     }
-    log.info(`[${MOD_ID}] hub=${station.stationID} processed=${selected.length} created=${created} replaced=${replaced} skipped=${skipped} at=${nowMs}`);
+    log.info(
+      `[${MOD_ID}] hub=${station.stationID} processed=${selected.length} created=${created} ` +
+      `replaced=${replaced} skipped=${skipped} manifestFallback=${manifestFallback} ` +
+      `calculatedFallback=${calculatedFallback} at=${nowMs}`,
+    );
     return {
       stationID: station.stationID,
       stationName: station.stationName || String(station.stationID),
@@ -430,6 +494,8 @@ class NpcMarketLiquidityService extends BaseService {
       replaced,
       skipped,
       failed,
+      manifestFallback,
+      calculatedFallback,
       fuelSeed: fuelSeedResult,
     };
   }
@@ -444,6 +510,7 @@ class NpcMarketLiquidityService extends BaseService {
       `Time: ${new Date(nowMs).toISOString()}`,
       `Created: ${totals.created} | Replaced: ${totals.replaced} | ` +
         `Skipped: ${totals.skipped} | Failed: ${totals.failed}`,
+      `Manifest fallback: ${totals.manifestFallback} | Calculated fallback: ${totals.calculatedFallback}`,
       `Oxygen seed: created ${totals.seedCreated} | skipped ${totals.seedSkipped} | failed ${totals.seedFailed}`,
       ...hubs
         .filter((hub) => hub.created > 0 || hub.replaced > 0 || hub.skipped > 0 || hub.failed > 0 ||
@@ -469,6 +536,8 @@ class NpcMarketLiquidityService extends BaseService {
       seedCreated: 0,
       seedSkipped: 0,
       seedFailed: 0,
+      manifestFallback: 0,
+      calculatedFallback: 0,
     };
     const hubs = [];
     try {
@@ -483,6 +552,8 @@ class NpcMarketLiquidityService extends BaseService {
         totals.replaced += result.replaced;
         totals.skipped += result.skipped;
         totals.failed += result.failed;
+        totals.manifestFallback += result.manifestFallback;
+        totals.calculatedFallback += result.calculatedFallback;
         totals.seedCreated += result.fuelSeed.created;
         totals.seedSkipped += result.fuelSeed.skipped;
         totals.seedFailed += result.fuelSeed.failed;

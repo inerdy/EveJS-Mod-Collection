@@ -5,6 +5,14 @@ const path = require("node:path");
 
 const CONFIG_PATH = path.join(__dirname, "..", "config", "liquidity.json");
 const LOCAL_CONFIG_PATH = path.join(__dirname, "..", "config", "liquidity.local.json");
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const DEFAULT_PRICE_MANIFEST_PATH = path.join(
+  REPO_ROOT,
+  "tools",
+  "market-seederv3",
+  "data",
+  "price-manifest.json",
+);
 const DEFAULT_HUBS = [60003760, 60008494, 60011866, 60004588, 60005686];
 const DEFAULT_BUY_TIERS = [
   {id: "poor", multiplier: 0.55, weight: 20},
@@ -39,6 +47,9 @@ const DEFAULT_CONFIG = Object.freeze({
   durationDays: 3650,
   staleAfterMs: 604800000,
   minimumSpreadRatio: 0.02,
+  priceManifestEnabled: true,
+  priceManifestPath: DEFAULT_PRICE_MANIFEST_PATH,
+  allowCalculatedManifestPrices: true,
   hubFuelSeed: DEFAULT_HUB_FUEL_SEED,
   discordWebhookUrl: "",
   discordNotifyWhenEmpty: false,
@@ -86,6 +97,12 @@ function normalizeHubFuelSeed(value) {
   };
 }
 
+function resolveConfiguredPath(value, fallback) {
+  const configured = String(value || "").trim();
+  if (!configured) return fallback;
+  return path.isAbsolute(configured) ? configured : path.resolve(REPO_ROOT, configured);
+}
+
 function normalizeConfig(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   return Object.freeze({
@@ -102,6 +119,9 @@ function normalizeConfig(value = {}) {
     durationDays: integer(source.durationDays, DEFAULT_CONFIG.durationDays, 1, 3650),
     staleAfterMs: integer(source.staleAfterMs, DEFAULT_CONFIG.staleAfterMs, 3600000, 31536000000),
     minimumSpreadRatio: Math.max(0, Math.min(0.5, number(source.minimumSpreadRatio, DEFAULT_CONFIG.minimumSpreadRatio))),
+    priceManifestEnabled: source.priceManifestEnabled !== false,
+    priceManifestPath: resolveConfiguredPath(source.priceManifestPath, DEFAULT_PRICE_MANIFEST_PATH),
+    allowCalculatedManifestPrices: source.allowCalculatedManifestPrices !== false,
     hubFuelSeed: normalizeHubFuelSeed(source.hubFuelSeed || source.fuelSeed),
     discordWebhookUrl: String(source.discordWebhookUrl || "").trim(),
     discordNotifyWhenEmpty: source.discordNotifyWhenEmpty === true,
@@ -127,4 +147,11 @@ function loadConfig(configPath = CONFIG_PATH) {
   });
 }
 
-module.exports = {CONFIG_PATH, DEFAULT_CONFIG, LOCAL_CONFIG_PATH, loadConfig, normalizeConfig};
+module.exports = {
+  CONFIG_PATH,
+  DEFAULT_CONFIG,
+  DEFAULT_PRICE_MANIFEST_PATH,
+  LOCAL_CONFIG_PATH,
+  loadConfig,
+  normalizeConfig,
+};

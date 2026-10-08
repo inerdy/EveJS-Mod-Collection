@@ -1,9 +1,9 @@
 # NPC Market Liquidity
 
 NPC Market Liquidity gradually adds synthetic NPC buy and sell orders to the
-major trade hubs. It uses the current market book as its reference, then adds
-configurable good, fair, and poor prices over time instead of relying on SDE
-`basePrice` values.
+major trade hubs. It uses the current hub market book when one exists. If a
+hub has no local order for an item, it automatically uses the market-seederv3
+price manifest instead of requiring a manually maintained price list.
 
 The initial hubs are Jita, Amarr, Dodixie, Rens, and Hek. The mod processes a
 bounded batch once per hour, so it does not try to create thousands of orders
@@ -53,6 +53,13 @@ stopped, then restart the Game server.
   replace it using a new market reference.
 - `minimumSpreadRatio`: prevents generated orders from crossing the current
   book by default.
+- `priceManifestEnabled`: enables the automatic market-seederv3 fallback.
+- `priceManifestPath`: repository-relative or absolute path to
+  `price-manifest.json`. The default is
+  `tools/market-seederv3/data/price-manifest.json`.
+- `allowCalculatedManifestPrices`: allows the manifest's calculated entries
+  to seed items that have no live CCP or Jita reference. This is enabled by
+  default so items without existing orders can still be populated.
 - `hubFuelSeed`: controls the dedicated Oxygen Isotope seed. It defaults to type
   ID `17887`, 100,000 sell units per configured hub, and repair-after-restart
   enabled. Its `hubStationIDs` list defaults to Jita, Amarr, Dodixie, Rens, and
@@ -66,8 +73,18 @@ stopped, then restart the Game server.
 - `buyTiers` and `sellTiers`: weighted price tiers. Each tier has an `id`, a
   price `multiplier`, and a `weight` used to assign the order slots.
 
-The mod skips items that have no market group, no usable volume, or no current
-market reference. It does not silently fall back to the static SDE base price.
+The mod skips items that have no market group, no usable volume, or no entry in
+the configured price manifest. It does not use the static SDE `basePrice` as a
+silent fallback.
+
+The manifest contains two kinds of references. `ccp-esi-average` and
+`ccp-snapshot-jita-split` are captured from Tranquility market data. Entries
+such as `cost-recursive`, `derived-compressed-twin`, and
+`reprocessing-floor` are calculated references used only when no captured
+market price exists. The loader logs how many real and calculated entries it
+loaded, and each scheduler pass reports how many items used the fallback.
+Refresh the manifest with market-seederv3 after rebuilding the market seed if
+current Tranquility prices are desired.
 
 When Discord is configured, one summary message is sent after each pass that
 creates, replaces, or evaluates a dedicated hub fuel seed. A failed Discord
