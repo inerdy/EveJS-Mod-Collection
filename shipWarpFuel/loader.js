@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "shipwarpfuel";
-const MOD_VERSION = "0.1.0";
+const MOD_VERSION = "0.2.0";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const SESSION_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime${path.sep}spaceRuntime${path.sep}sessions.js`;
 const RUNTIME_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime.js`;
@@ -157,6 +157,6 @@ function installHooks() {
 }
 
 installHooks();
-log(`v${MOD_VERSION} active — warp fuel, odometer, and emergency fuel enabled`);
+log(`v${MOD_VERSION} active — isotope warp fuel, waypoint estimates, odometer, and emergency fuel enabled`);
 
 module.exports = Object.freeze({active: true, id: MOD_ID, version: MOD_VERSION});

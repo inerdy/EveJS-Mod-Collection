@@ -9,6 +9,7 @@ const database = require(serverPath("gameStore"));
 const {resolveDataRootPath} = require(serverPath("config", "dataRoot"));
 const itemStore = require(serverPath("services", "inventory", "itemStore"));
 const {resolveSessionCharacterID} = require(serverPath("services", "_shared", "sessionIdentity"));
+const {unwrapMarshalValue} = require(serverPath("services", "_shared", "serviceHelpers"));
 const log = require(serverPath("utils", "logger"));
 const {loadConfig} = require(path.join(__dirname, "config"));
 const {
@@ -79,8 +80,8 @@ function isInSpaceSession(session) {
 }
 
 function requestObject(args) {
-  const request = Array.isArray(args) ? args[0] : args;
-  return request && typeof request === "object" ? request : {};
+  const request = unwrapMarshalValue(Array.isArray(args) ? args[0] : args);
+  return request && typeof request === "object" && !Array.isArray(request) ? request : {};
 }
 
 function vector(value) {

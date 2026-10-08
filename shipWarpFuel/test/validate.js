@@ -231,6 +231,14 @@ JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17887}], session));
 const dockedSession = {characterID: 42, stationid: 60003760};
 const dockedSwitch = JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17889}], dockedSession));
 assert.equal(dockedSwitch.fuelTypeID, 17889);
+const marshaledSwitch = JSON.parse(fuelService.Handle_SetFuelType([
+  new Map([["fuelTypeID", 17889]]),
+], session));
+assert.equal(marshaledSwitch.fuelTypeID, 17889);
+const marshaledEstimate = JSON.parse(fuelService.Handle_GetWaypointFuelEstimate([
+  new Map([["hasRoute", true], ["jumps", 1]]),
+], session));
+assert.equal(marshaledEstimate.hasRoute, true);
 JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17887}], session));
 
 const loader = fs.readFileSync(path.join(modRoot, "loader.js"), "utf8");
@@ -239,6 +247,7 @@ assert.match(loader, /warpToEntity/u);
 assert.match(loader, /warpToPoint/u);
 assert.match(loader, /fittingRuntime\.js/u);
 assert.match(loader, /attachSession/u);
+assert.match(loader, /MOD_VERSION = "0\.2\.0"/u);
 
 const client = fs.readFileSync(path.join(modRoot, "client", "menu.py"), "utf8");
 assert.match(client, /Ship Warp Fuel/u);
@@ -273,6 +282,7 @@ assert.match(service, /Handle_GetWaypointFuelEstimate/u);
 assert.match(service, /Handle_SetFuelType/u);
 assert.match(service, /EMERGENCY_FUEL_REQUIRES_SPACE/u);
 assert.match(service, /isInSpaceSession/u);
+assert.match(service, /unwrapMarshalValue/u);
 
 const packageFiles = [];
 function collect(directory, prefix = "") {
