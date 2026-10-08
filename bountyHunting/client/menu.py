@@ -195,7 +195,7 @@ class BountyHuntingWindow(Window):
             )
         )
         self._stats.SetText(
-            '%s %s\n%s %s\n%s %s ISK\n%s %s SP\n%s %s PLEX' % (
+            '%s %s\n%s %s\n%s %s ISK\n%s %s SP\n%s %s PLEX\n%s' % (
                 _color(_COLOR_LABEL, 'Low / Standard / Elite / Boss:'),
                 _color(_COLOR_ACTIVE, '%s / %s / %s / %s' % (
                     _integer(kills_by_tier.get('low', 0)),

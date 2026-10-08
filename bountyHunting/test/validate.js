@@ -339,6 +339,7 @@ async function validateAsync() {
   assert.match(client, /GetBountyProgress/u);
   assert.match(client, /mods\.register/u);
   assert.match(client, /recentKills/u);
+  assert.match(client, /%s %s PLEX\\n%s' %/u);
 
   const packageFiles = [];
   function collect(directory, prefix = "") {
