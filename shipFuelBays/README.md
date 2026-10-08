@@ -15,12 +15,14 @@ client window. Those behaviors remain separate, including in the
 
 ## Features
 
-- Adds the native fuel-bay attribute to eligible ship resource and dogma states,
-  so the client can show a `Fuel Bay` entry beneath the ship in Inventory.
+- Adds the native fuel-bay attribute to eligible ship resource, dogma, and
+  inventory item states, so the client can show a `Fuel Bay` entry beneath the
+  ship in Inventory.
 - Uses the hull's default cargo capacity in cubic meters.
 - Preserves the native fuel-bay capacity of ships that already have one.
 - Uses EveJS's existing dedicated fuel-bay inventory flag.
-- Patches both cached and future-loaded fitting and dogma modules.
+- Patches both cached and future-loaded fitting, dogma, and inventory attribute
+  builders.
 - Keeps the change server-side and does not edit EveJS core files.
 
 ## Requirements

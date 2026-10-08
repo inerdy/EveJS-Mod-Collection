@@ -194,6 +194,42 @@ class ShipFuelBaysService {
     return this._decorateAttributes(attributes, this.getFuelBayInfo(shipItem));
   }
 
+  decorateShipBaseAttributes(attributes, shipItem) {
+    if (!this.config.enabled || !attributes || typeof attributes !== "object") {
+      return attributes;
+    }
+
+    return this._decorateAttributes(attributes, this.getFuelBayInfo(shipItem));
+  }
+
+  decorateShipAttributeDict(attributeDict, shipItem) {
+    if (
+      !this.config.enabled ||
+      !attributeDict ||
+      typeof attributeDict !== "object" ||
+      !Array.isArray(attributeDict.entries)
+    ) {
+      return attributeDict;
+    }
+
+    const info = this.getFuelBayInfo(shipItem);
+    if (!info || !info.added) {
+      return attributeDict;
+    }
+
+    const entries = attributeDict.entries.slice();
+    const existingIndex = entries.findIndex(
+      (entry) => Array.isArray(entry) && Number(entry[0]) === FUEL_BAY_ATTRIBUTE_ID,
+    );
+    const fuelBayEntry = [FUEL_BAY_ATTRIBUTE_ID, info.capacityM3];
+    if (existingIndex >= 0) {
+      entries[existingIndex] = fuelBayEntry;
+    } else {
+      entries.push(fuelBayEntry);
+    }
+    return {...attributeDict, entries};
+  }
+
   _decorateAttributes(attributes, info) {
     if (!attributes || typeof attributes !== "object" || !info || !info.added) {
       return attributes;

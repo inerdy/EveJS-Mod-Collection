@@ -25,7 +25,7 @@ for (const file of [
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "shipfuelbays");
 assert.equal(manifest.displayName, "Ship Fuel Bays");
-assert.equal(manifest.version, "0.1.1");
+assert.equal(manifest.version, "0.1.2");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -115,10 +115,45 @@ class FakeDogmaService {
   _buildShipAttributes(_character, shipItem) {
     return {mass: 100};
   }
+
+  _buildShipBaseAttributes(shipItem) {
+    return {mass: 100};
+  }
+
+  _buildInventoryItemAttributes(shipItem) {
+    return {mass: 100};
+  }
+
+  _buildShipAttributeDict(_character, shipItem) {
+    return {type: "dict", entries: [[4, 100]]};
+  }
 }
 loader._testing.wrapDogmaService(FakeDogmaService);
-const dogmaAttributes = new FakeDogmaService()._buildShipAttributes(1, merlin);
+const fakeDogma = new FakeDogmaService();
+const dogmaAttributes = fakeDogma._buildShipAttributes(1, merlin);
 assert.equal(dogmaAttributes[FUEL_BAY_ATTRIBUTE_ID], 150);
+assert.equal(
+  fakeDogma._buildShipBaseAttributes(merlin)[FUEL_BAY_ATTRIBUTE_ID],
+  150,
+);
+assert.equal(
+  fakeDogma._buildInventoryItemAttributes(merlin)[FUEL_BAY_ATTRIBUTE_ID],
+  150,
+);
+assert.deepEqual(
+  fakeDogma._buildShipAttributeDict(1, merlin).entries.find(
+    (entry) => Number(entry[0]) === FUEL_BAY_ATTRIBUTE_ID,
+  ),
+  [FUEL_BAY_ATTRIBUTE_ID, 150],
+);
+
+const nativeAttributeDict = fakeDogma._buildShipAttributeDict(1, orca);
+assert.equal(
+  nativeAttributeDict.entries.some(
+    (entry) => Number(entry[0]) === FUEL_BAY_ATTRIBUTE_ID,
+  ),
+  false,
+);
 
 const snapshot = {
   shipItem: merlin,

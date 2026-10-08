@@ -7,7 +7,7 @@ const {loadConfig} = require("./lib/config");
 const {ShipFuelBaysService} = require("./lib/shipFuelBaysService");
 
 const MOD_ID = "shipfuelbays";
-const MOD_VERSION = "0.1.1";
+const MOD_VERSION = "0.1.2";
 const LIVE_FITTING_SUFFIX = path.join(
   "server",
   "src",
@@ -96,11 +96,35 @@ function wrapDogmaService(exported) {
   const prototype = exported && exported.prototype;
   if (!prototype || prototype[DOGMA_WRAPPED]) return exported;
 
-  const original = prototype._buildShipAttributes;
-  if (typeof original === "function") {
+  const originalShipAttributes = prototype._buildShipAttributes;
+  if (typeof originalShipAttributes === "function") {
     prototype._buildShipAttributes = function shipFuelBaysDogmaAttributes(...args) {
-      const attributes = original.apply(this, args);
+      const attributes = originalShipAttributes.apply(this, args);
       return service.decorateShipAttributes(attributes, args[1]);
+    };
+  }
+
+  const originalShipBaseAttributes = prototype._buildShipBaseAttributes;
+  if (typeof originalShipBaseAttributes === "function") {
+    prototype._buildShipBaseAttributes = function shipFuelBaysDogmaBaseAttributes(...args) {
+      const attributes = originalShipBaseAttributes.apply(this, args);
+      return service.decorateShipBaseAttributes(attributes, args[0]);
+    };
+  }
+
+  const originalInventoryAttributes = prototype._buildInventoryItemAttributes;
+  if (typeof originalInventoryAttributes === "function") {
+    prototype._buildInventoryItemAttributes = function shipFuelBaysInventoryAttributes(...args) {
+      const attributes = originalInventoryAttributes.apply(this, args);
+      return service.decorateShipAttributes(attributes, args[0]);
+    };
+  }
+
+  const originalShipAttributeDict = prototype._buildShipAttributeDict;
+  if (typeof originalShipAttributeDict === "function") {
+    prototype._buildShipAttributeDict = function shipFuelBaysShipAttributeDict(...args) {
+      const attributeDict = originalShipAttributeDict.apply(this, args);
+      return service.decorateShipAttributeDict(attributeDict, args[1]);
     };
   }
   Object.defineProperty(prototype, DOGMA_WRAPPED, {
