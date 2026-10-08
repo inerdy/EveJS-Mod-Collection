@@ -2,31 +2,6 @@
 
 const path = require("node:path");
 
-const {
-  TABLE,
-  readStaticTable,
-} = require(path.join(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "server",
-  "src",
-  "services",
-  "_shared",
-  "referenceData",
-));
-const itemStore = require(path.join(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "server",
-  "src",
-  "services",
-  "inventory",
-  "itemStore",
-));
 const {loadConfig} = require("./config");
 
 const SHIP_CATEGORY_ID = 6;
@@ -72,12 +47,49 @@ class ShipFuelBaysService {
   constructor(config = loadConfig()) {
     this.config = config;
     this._infoCache = new Map();
+    this._referenceDataModule = null;
+    this._itemStoreModule = null;
+  }
+
+  referenceDataModule() {
+    if (!this._referenceDataModule) {
+      this._referenceDataModule = require(path.join(
+        __dirname,
+        "..",
+        "..",
+        "..",
+        "server",
+        "src",
+        "services",
+        "_shared",
+        "referenceData",
+      ));
+    }
+    return this._referenceDataModule;
+  }
+
+  itemStoreModule() {
+    if (!this._itemStoreModule) {
+      this._itemStoreModule = require(path.join(
+        __dirname,
+        "..",
+        "..",
+        "..",
+        "server",
+        "src",
+        "services",
+        "inventory",
+        "itemStore",
+      ));
+    }
+    return this._itemStoreModule;
   }
 
   nativeFuelBayCapacity(typeID) {
     const numericTypeID = typeIDFrom(typeID);
     if (!numericTypeID) return 0;
 
+    const {TABLE, readStaticTable} = this.referenceDataModule();
     const shipDogma = attributesForType(
       readStaticTable(TABLE.SHIP_DOGMA_ATTRIBUTES),
       numericTypeID,
@@ -96,7 +108,7 @@ class ShipFuelBaysService {
     const numericTypeID = typeIDFrom(shipItem);
     if (!numericTypeID) return 0;
 
-    const metadata = itemStore.getItemMetadata(numericTypeID);
+    const metadata = this.itemStoreModule().getItemMetadata(numericTypeID);
     const metadataCapacity = positive(metadata && metadata.capacity);
     if (metadataCapacity > 0) return metadataCapacity;
 
@@ -110,7 +122,7 @@ class ShipFuelBaysService {
       return this._infoCache.get(numericTypeID);
     }
 
-    const metadata = itemStore.getItemMetadata(numericTypeID);
+    const metadata = this.itemStoreModule().getItemMetadata(numericTypeID);
     const categoryID = Math.trunc(
       finite(
         shipItem && shipItem.categoryID !== undefined
