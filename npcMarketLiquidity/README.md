@@ -1,5 +1,9 @@
 # NPC Market Liquidity
 
+[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![Native and Docker](https://img.shields.io/badge/backend-native%20%2B%20Docker-6f42c1)](#requirements)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 NPC Market Liquidity gradually adds synthetic NPC buy and sell orders to the
 major trade hubs. It uses the current hub market book when one exists. If a
 hub has no local order for an item, it automatically uses the market-seederv3
@@ -16,11 +20,16 @@ current average market reference or the bundled manifest fallback. These
 dedicated seed orders are idempotent, are not continuously replenished after
 being sold, and can be repaired after the market daemon restarts.
 
-## Requirements and installation
+## Requirements
 
 - EveJS `0.12.9`
 - Standard market server order RPCs (`idempotent-fill-v1`)
 - EveJS Launcher `1.0.69` or newer
+
+Native and Docker backends are supported when the market daemon exposes the
+standard order RPCs.
+
+## Installation
 
 Copy `mods/npcMarketLiquidity` into the installation's `mods` directory, enable
 it in the Launcher, and restart the Game server. The mod checks the market
@@ -122,3 +131,10 @@ This project is released under the MIT License. See [LICENSE](LICENSE).
 If the project becomes unmaintained, you may continue working on it, modify
 it, and release your own version. Please keep the original author credit to
 **Troublesum** in the documentation and source distribution.
+
+## AI disclosure
+
+Parts of this project were developed with assistance from AI tools. The code,
+behavior, testing, documentation, and releases are reviewed and maintained by
+Troublesum. AI assistance does not change the license or ownership of this
+project.

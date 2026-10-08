@@ -1,7 +1,12 @@
 # Ship Warp Fuel
 
+[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
+
 Ship Warp Fuel adds a server-authoritative isotope fuel system to EveJS 0.12.9
 without modifying EveJS source files.
+
+## Features
 
 Every ship exposes a 1,000-unit universal fuel bay. Warp commands consume the
 currently selected isotope based on ship class and fuel burn rate, rounded up
@@ -66,11 +71,20 @@ before it is removed. The emergency button is only shown when the active ship
 has no fuel of the selected type and the character is undocked in space. If the wallet is short, the available
 balance is charged and the remainder is tracked as debt for later collection.
 
+## Requirements
+
+- Native EveJS `0.12.9`
+- [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
+
+This mod is native-only. Docker deployments are not supported.
+
 ## Installation
 
 Enable `shipwarpfuel` in the EveJS Launcher and restart the Game server.
 Configuration lives in `config/fuel.json`; optional local overrides can be
 placed in the ignored `config/fuel.local.json` file.
+
+## Configuration
 
 The emergency service movement can be adjusted with these settings:
 
@@ -98,3 +112,15 @@ and Oxygen Isotopes in Jita, Amarr, Dodixie, Rens, and Hek. It creates one
 average market reference or the bundled market manifest fallback. The seeds
 are idempotent, do not continuously replenish sold stock, and can repair a
 missing order after the market daemon restarts.
+
+## Removal
+
+Disable the mod in the Launcher and restart the Game server. Existing fuel-bay
+contents and odometer state remain in the data root unless you remove the
+state file intentionally.
+
+## Maintenance
+
+Fuel state is stored outside the package at
+`<EVEJS data root>/gameStore/shipWarpFuel/state.json`. Keep the manifest inside
+the mod folder when updating the package.

@@ -1,8 +1,8 @@
+# Auto Deposit Ore
+
 [![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-# Auto Deposit Ore
 
 Auto Deposit Ore moves mining output from the active ship into the character's
 personal hangar after a successful docking operation. It handles general
@@ -22,21 +22,18 @@ equipment alone.
 
 - Native EveJS `0.12.9` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
-- Native backend only. Docker deployments are not supported.
+
+This mod is native-only. Docker deployments are not supported.
 
 ## Installation
 
-Copy this folder to the EveJS `mods` directory:
+1. Copy `autoDepositOre` into the EveJS `mods` directory.
+2. Keep the manifest at `mods/autoDepositOre/evejs-launcher.mod.json`.
+3. Enable **Auto Deposit Ore** in the EveJS Launcher.
+4. Restart the **Game server** and reconnect the client.
+5. Open **Mods > Auto Deposit Ore** to change the per-character setting.
 
-```text
-<EveJS root>/mods/autoDepositOre
-```
-
-Enable `Auto Deposit Ore` in the EveJS Launcher, restart the **Game server**,
-and reconnect the client. Open **Mods > Auto Deposit Ore** to change the
-setting.
-
-## Settings and storage
+## Configuration
 
 There is no separate configuration file. The per-character setting is stored at:
 

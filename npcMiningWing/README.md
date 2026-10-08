@@ -27,7 +27,6 @@ collection ship. The player's active ship is not counted toward that limit.
 ## Requirements
 
 - Native EveJS `0.12.9` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
-- EVE client build `3396210`
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
 
 This mod is native-only. Docker deployments are not supported.

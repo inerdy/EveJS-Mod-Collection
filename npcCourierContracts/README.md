@@ -1,5 +1,9 @@
 # NPC Courier Contracts
 
+[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 NPC Courier Contracts is a native-only EveJS mod that creates public courier contracts from major trade hubs and gradually promotes active NPC stations into additional contract origins.
 
 Version `0.6.4` fixes station-level automatic routing and ensures dock
@@ -38,16 +42,26 @@ If the package is missing, damaged, or otherwise invalid, the contract stays
 active and the mod retries on a later successful dock. When no accepted NPC
 courier remains, the mod leaves the current route unchanged.
 
-## Compatibility and installation
+## Requirements
 
 - EveJS 0.12.9
 - Native backend
 - A game-server restart after enabling, disabling, or updating the mod
 - A funded NPC issuer corporation cash division
 
+This mod is native-only. Docker deployments are not supported.
+
+## Installation
+
 The Launcher should discover the mod from `mods/npcCourierContracts` like the other native loader mods. The default issuer is InterBus corporation `1000148`, represented by NPC character `3015955`. Both can be changed in `config/contracts.json`.
 
 The mod includes a bounded NPC treasury for the default single-player economy. It seeds the issuer corporation's cash division to 50,000,000,000 ISK when the balance is below the 20% threshold of 10,000,000,000 ISK, then replenishes it back to 50,000,000,000 ISK. Funding uses EveJS's normal corporation-wallet authority and is recorded with an idempotent receipt, so a restart cannot duplicate the same replenishment. Disable `treasury.enabled` if you prefer to fund the issuer manually. If treasury replenishment fails and the wallet is underfunded, the server continues normally and generation pauses.
+
+## Basic use
+
+Open the normal EVE Contracts interface to accept and deliver generated courier
+contracts. Open the Hauler Progression entry in the in-game Mods menu to set
+the per-character Courier Automation options.
 
 ## Default behavior
 
@@ -136,3 +150,10 @@ NPC Courier Contracts generates public courier contracts from NPC stations,
 including physical cargo with a real volume requirement. It uses EveJS's
 native contract runtime so the contracts appear and behave through the normal
 EVE Contracts interface.
+
+## AI disclosure
+
+Parts of this project were developed with assistance from AI tools. The code,
+behavior, testing, documentation, and releases are reviewed and maintained by
+Troublesum. AI assistance does not change the license or ownership of this
+project.

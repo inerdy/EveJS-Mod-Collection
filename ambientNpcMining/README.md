@@ -1,12 +1,12 @@
+# Ambient NPC Mining
+
 [![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-# Ambient NPC Mining
-
 Ambient NPC Mining occasionally adds temporary NPC mining fleets to solar
 systems with active players. It uses EveJS's native mining-fleet service for
-the fleet behavior and only controls when a new ambient fleet is requested.
+fleet behavior and only controls when a new ambient fleet is requested.
 
 ## Features
 
@@ -24,20 +24,16 @@ write permanent fleet state to the database.
 ## Requirements
 
 - Native EveJS `0.12.9` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
-- EVE client build `3396210`
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
-- Native backend only. Docker deployments are not supported.
+
+This mod is native-only. Docker deployments are not supported.
 
 ## Installation
 
-Copy this folder to the EveJS `mods` directory:
-
-```text
-<EveJS root>/mods/ambientNpcMining
-```
-
-Enable `Ambient NPC Mining` in the EveJS Launcher and restart the **Game
-server**. Keep `evejs-launcher.mod.json` directly inside the mod folder.
+1. Copy `ambientNpcMining` into the EveJS `mods` directory.
+2. Keep the manifest at `mods/ambientNpcMining/evejs-launcher.mod.json`.
+3. Enable **Ambient NPC Mining** in the EveJS Launcher.
+4. Restart the **Game server**.
 
 The existing `/npcminer` command remains available for manual testing. It is
 separate from the automatic chance rolls in this mod.
@@ -61,7 +57,7 @@ Common settings:
 - `minerCommandQuery`: optional native mining profile, pool, or group query.
 - `allowedSystemIDs`: optional numeric allow-list; empty allows all active systems.
 
-The mod does not modify EveJS source, NPC profile data, the NPC Mining Wing,
+The mod does not modify EveJS source, NPC profile data, NPC Mining Wing,
 Ambient NPC Traffic, or permanent player records.
 
 ## Removal

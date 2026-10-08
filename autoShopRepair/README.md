@@ -1,8 +1,8 @@
+# Auto Shop Repair
+
 [![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-# Auto Shop Repair
 
 Auto Shop Repair automatically repairs the active ship, its fitted modules,
 and drones stored in its drone bay after a successful docking at an NPC
@@ -11,8 +11,7 @@ including the regular ISK check.
 
 ## Features
 
-- Repairs the active ship, fitted modules, and active ship drone-bay drones
-  after docking at an NPC station.
+- Repairs the active ship, fitted modules, and active ship drone-bay drones after docking at an NPC station.
 - Uses the native repair price and payment system.
 - Skips the repair without charging when the character lacks sufficient ISK.
 - Enables the feature per character by default.
@@ -24,21 +23,18 @@ including the regular ISK check.
 
 - Native EveJS `0.12.9` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
-- Native backend only. Docker deployments are not supported.
+
+This mod is native-only. Docker deployments are not supported.
 
 ## Installation
 
-Copy this folder to the EveJS `mods` directory:
+1. Copy `autoShopRepair` into the EveJS `mods` directory.
+2. Keep the manifest at `mods/autoShopRepair/evejs-launcher.mod.json`.
+3. Enable **Auto Shop Repair** in the EveJS Launcher.
+4. Restart the **Game server** and reconnect the client.
+5. Open **Mods > Auto Shop Repair** to change the per-character setting.
 
-```text
-<EveJS root>/mods/autoShopRepair
-```
-
-Enable `Auto Shop Repair` in the EveJS Launcher, restart the **Game server**,
-and reconnect the client. Open **Mods > Auto Shop Repair** to change the
-setting.
-
-## Settings and storage
+## Configuration
 
 There is no separate configuration file. The per-character setting is stored at:
 

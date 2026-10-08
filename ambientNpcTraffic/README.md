@@ -1,8 +1,8 @@
+# Ambient NPC Traffic
+
 [![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-# Ambient NPC Traffic
 
 Ambient NPC Traffic adds temporary cosmetic ship traffic to occupied solar
 systems. It uses native EveJS NPC profiles to make stations, gates, and planets
@@ -24,18 +24,15 @@ over time.
 
 - Native EveJS `0.12.9` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
-- Native backend only. Docker deployments are not supported.
+
+This mod is native-only. Docker deployments are not supported.
 
 ## Installation
 
-Copy this folder to the EveJS `mods` directory:
-
-```text
-<EveJS root>/mods/ambientNpcTraffic
-```
-
-Enable `Ambient NPC Traffic` in the EveJS Launcher and restart the **Game
-server**. Keep `evejs-launcher.mod.json` directly inside the mod folder.
+1. Copy `ambientNpcTraffic` into the EveJS `mods` directory.
+2. Keep the manifest at `mods/ambientNpcTraffic/evejs-launcher.mod.json`.
+3. Enable **Ambient NPC Traffic** in the EveJS Launcher.
+4. Restart the **Game server**.
 
 ## Configuration
 
@@ -64,7 +61,7 @@ the NPC Market and NPC Mining Wing mods.
 Disable the mod in the Launcher and restart the Game server. No database
 cleanup is required because traffic is temporary.
 
-## License
+## License and maintenance
 
 Released under the [MIT License](LICENSE).
 
