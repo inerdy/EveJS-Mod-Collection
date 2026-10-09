@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "serviceFeeISK": 120000,
+  "cooldownSeconds": 300,
+  "noctisTypeID": 2998,
+  "tractorBeamTypeID": 24622,
+  "tractorBeamCount": 4,
+  "salvagerTypeID": 30836,
+  "salvagerCount": 4,
+  "salvageDroneTypeID": 55760,
+  "salvageDroneCount": 5,
+  "spawnDistanceAU": 1,
+  "approachRangeMeters": 5000,
+  "approachTimeoutMs": 30000,
+  "serviceLifetimeMs": 900000,
+  "departureDelayMs": 5000,
+  "pollIntervalMs": 250,
+  "maxServiceDurationMs": 600000,
+  "maxSalvageCyclesPerTarget": 12
+}
