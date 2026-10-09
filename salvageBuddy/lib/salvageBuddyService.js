@@ -425,7 +425,14 @@ class SalvageBuddyService extends BaseService {
       },
     );
     if (!warpResult || warpResult.success !== true) return false;
-    return this._waitNear(request, serviceShip.targetShipID, this._config.approachRangeMeters);
+    // The client presents rounded/edge distances, while the scene check uses
+    // entity-center distance. Allow a small buffer so a ship shown at roughly
+    // 5 km is not held in the warping-in stage at 5,022 m.
+    return this._waitNear(
+      request,
+      serviceShip.targetShipID,
+      this._config.approachRangeMeters + 500,
+    );
   }
 
   async _waitNear(request, targetID, rangeMeters, timeoutMs = this._config.approachTimeoutMs) {
