@@ -1,13 +1,14 @@
 # SalvageBuddy
 
 SalvageBuddy summons a temporary, server-controlled Noctis to the player's
-current location. The default fit is four Large Tractor Beam I modules, four
-Salvager II modules, and five Salvage Drone II workers.
+current location. The default fit is a 10MN Afterburner II, four Large Tractor
+Beam I modules, four Salvager II modules, and five Salvage Drone II workers.
 
 The service scans the current solar system for salvageable wrecks and legal,
-unanchored cargo containers. It warps in from one AU, approaches the player's
-ship, works through eligible targets, transfers recovered items directly into
-the player's active ship cargo hold, then warps away and despawns.
+unanchored cargo containers. It warps in from one AU, activates its afterburner,
+warps to tractor-beam range instead of flying to each wreck, pulls targets in
+with all four tractors, deploys its Salvage Drone IIs, and transfers recovered
+items directly into the player's active ship cargo hold before warping away.
 
 Each request costs 120,000 ISK. The fee is charged when the request is accepted;
 if the temporary Noctis cannot spawn or cannot arrive, the fee is refunded. A

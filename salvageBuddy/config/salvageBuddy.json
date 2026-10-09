@@ -3,6 +3,7 @@
   "serviceFeeISK": 120000,
   "cooldownSeconds": 300,
   "noctisTypeID": 2998,
+  "afterburnerTypeID": 12058,
   "tractorBeamTypeID": 24622,
   "tractorBeamCount": 4,
   "salvagerTypeID": 30836,
