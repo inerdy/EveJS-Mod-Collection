@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "salvagebuddy",
   "displayName": "SalvageBuddy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Summons a fitted Noctis service ship to salvage nearby wrecks and collect legal cargo containers for a 120,000 ISK fee.",
   "kind": "loader",
   "supportedBackends": ["native"],

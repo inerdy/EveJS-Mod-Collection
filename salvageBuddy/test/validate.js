@@ -10,6 +10,7 @@ const config = JSON.parse(fs.readFileSync(path.join(root, "config", "salvageBudd
 const normalized = require(path.join(root, "lib", "config")).normalizeConfig(config);
 
 assert.equal(manifest.id, "salvagebuddy");
+assert.equal(manifest.version, "0.2.0");
 assert.equal(manifest.clientMenu.entrypoint, "client/menu.py");
 assert.equal(normalized.serviceFeeISK, 120000);
 assert.equal(normalized.cooldownSeconds, 300);
@@ -27,5 +28,6 @@ assert.match(service, /executeSalvagerCycle/u);
 assert.match(service, /resolveTractorBeamActivation/u);
 assert.match(service, /adjustCharacterBalanceAsync/u);
 assert.match(service, /RequestSalvage/u);
+assert.match(service, /Handle_SendAway/u);
 
 console.log("salvageBuddy validation passed");

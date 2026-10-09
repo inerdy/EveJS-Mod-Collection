@@ -166,6 +166,7 @@ class SalvageBuddyService extends BaseService {
         Math.ceil((Math.max(0, character.cooldownUntilMs - now)) / 1000),
       ),
       active: Boolean(request),
+      canSendAway: Boolean(request),
       stage: request ? request.stage : "idle",
       targetsProcessed: request ? request.targetsProcessed : 0,
       targetsFound: request ? request.targetsFound : 0,
@@ -376,6 +377,7 @@ class SalvageBuddyService extends BaseService {
     const scene = request.serviceShip && request.serviceShip.scene;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      if (request.cancelRequested === true) return false;
       const source = scene && scene.getEntityByID(request.serviceShip.serviceShipID);
       const target = scene && scene.getEntityByID(targetID);
       if (!source || !target) return false;
@@ -523,6 +525,7 @@ class SalvageBuddyService extends BaseService {
   }
 
   async _useTractor(request, session, targetEntity, workers) {
+    if (request.cancelRequested === true) return false;
     const scene = request.serviceShip.scene;
     const source = this._serviceShipEntity(request);
     const tractor = workers.tractors[0];
@@ -568,6 +571,7 @@ class SalvageBuddyService extends BaseService {
     const deadline = Date.now() + Math.min(this._config.approachTimeoutMs, 10000);
     let pulled = false;
     while (Date.now() < deadline) {
+      if (request.cancelRequested === true) break;
       const currentSource = scene.getEntityByID(source.itemID);
       const currentTarget = scene.getEntityByID(targetEntity.itemID);
       if (!currentSource || !currentTarget) break;
@@ -594,12 +598,14 @@ class SalvageBuddyService extends BaseService {
     const skillMap = getCachedCharacterSkillMap(request.characterID);
     const workerItems = [...workers.salvagers, ...workers.drones];
     for (let cycle = 0; cycle < this._config.maxSalvageCyclesPerTarget; cycle += 1) {
+      if (request.cancelRequested === true) return {cancelled: true};
       const currentTarget = scene.getEntityByID(targetEntity.itemID);
       if (!currentTarget || !salvagerRuntime.isSalvageableTarget(currentTarget)) {
         return {success: true, salvaged: true};
       }
       let durationMs = 1000;
       for (const worker of workerItems) {
+        if (request.cancelRequested === true) return {cancelled: true};
         const current = scene.getEntityByID(targetEntity.itemID);
         if (!current || !salvagerRuntime.isSalvageableTarget(current)) {
           return {success: true, salvaged: true};
@@ -661,6 +667,8 @@ class SalvageBuddyService extends BaseService {
   async _sendAway(request) {
     const serviceShip = request.serviceShip;
     const scene = serviceShip && serviceShip.scene;
+    if (request.departureStarted === true) return;
+    request.departureStarted = true;
     if (!scene || !serviceShip.departurePoint || typeof scene.startSessionlessWarpIngress !== "function") {
       await this._removeServiceShip(request);
       return;
@@ -707,18 +715,33 @@ class SalvageBuddyService extends BaseService {
     request.serviceShip = null;
   }
 
+  async _cancelRequest(request, session) {
+    request.stage = "departing";
+    await this._sendAway(request);
+    request.status = "cancelled";
+    request.stage = "cancelled";
+    this._send(session, "SalvageBuddy is returning to base.");
+  }
+
   async _runRequest(request, session) {
     try {
       request.stage = "spawning";
+      if (request.cancelRequested === true) return await this._cancelRequest(request, session);
       request.serviceShip = await this._spawnServiceShip(session, request);
       if (!request.serviceShip) throw new Error("SERVICE_SHIP_SPAWN_FAILED");
       request.serviceShipID = request.serviceShip.serviceShipID;
+      if (request.cancelRequested === true) return await this._cancelRequest(request, session);
       request.stage = "warping-in";
-      if (!(await this._bringToPlayer(request))) throw new Error("SERVICE_SHIP_ARRIVAL_FAILED");
+      const arrived = await this._bringToPlayer(request);
+      if (!arrived) {
+        if (request.cancelRequested === true) return await this._cancelRequest(request, session);
+        throw new Error("SERVICE_SHIP_ARRIVAL_FAILED");
+      }
       request.deliveryStarted = true;
       request.stage = "servicing";
       const deadline = Date.now() + this._config.maxServiceDurationMs;
       while (Date.now() < deadline) {
+        if (request.cancelRequested === true) return await this._cancelRequest(request, session);
         const targets = this._eligibleTargets(request, session);
         request.targetsFound = targets.length;
         if (targets.length <= 0) break;
@@ -727,12 +750,17 @@ class SalvageBuddyService extends BaseService {
         const workers = this._fittedWorkers(request.serviceShipID);
         const tractorRange = workers.tractors.length > 0 ? 20000 : this._config.approachRangeMeters;
         await this._waitNear(request, target.itemID, tractorRange, this._config.approachTimeoutMs);
+        if (request.cancelRequested === true) return await this._cancelRequest(request, session);
         await this._useTractor(request, session, target, workers);
+        if (request.cancelRequested === true) return await this._cancelRequest(request, session);
         const currentTarget = request.serviceShip.scene.getEntityByID(target.itemID);
         if (!currentTarget) continue;
         const result = this._isCargoContainerTarget(currentTarget, session)
           ? await this._collectContainer(request, session, currentTarget)
           : await this._salvageTarget(request, session, currentTarget, workers);
+        if (request.cancelRequested === true || result && result.cancelled === true) {
+          return await this._cancelRequest(request, session);
+        }
         if (result && result.stopReason === "cargo") {
           this._send(session, "The player ship cargo hold is full; SalvageBuddy is returning.");
           break;
@@ -740,6 +768,7 @@ class SalvageBuddyService extends BaseService {
         request.targetsProcessed += 1;
         request.targetID = 0;
       }
+      if (request.cancelRequested === true) return await this._cancelRequest(request, session);
       request.stage = "departing";
       await this._sendAway(request);
       request.status = "completed";
@@ -797,11 +826,24 @@ class SalvageBuddyService extends BaseService {
       targetID: 0,
       targetsProcessed: 0,
       targetsFound: 0,
+      cancelRequested: false,
+      departureStarted: false,
     };
     this._active.set(characterID, request);
     this._saveState();
     this._send(session, `SalvageBuddy accepted the request for ${charge.amount.toFixed(0)} ISK.`);
     void this._runRequest(request, session);
+    return this._stateForSession(session);
+  }
+
+  async Handle_SendAway(_args, session) {
+    const characterID = characterIDFromSession(session);
+    const request = this._active.get(characterID);
+    if (!request) throw new Error("SALVAGE_BUDDY_NOT_ACTIVE");
+    request.cancelRequested = true;
+    request.stage = "returning";
+    this._saveState();
+    this._send(session, "SalvageBuddy will stop working and depart shortly.");
     return this._stateForSession(session);
   }
 

@@ -14,6 +14,10 @@ if the temporary Noctis cannot spawn or cannot arrive, the fee is refunded. A
 character may have only one active request and receives a five-minute cooldown
 after each accepted request.
 
+While the service is active, the Mods-menu window includes **Send SalvageBuddy
+Away**. This stops additional work and sends the Noctis away without refunding
+the already accepted service fee.
+
 ## Installation
 
 Enable `salvagebuddy` in the EveJS Launcher and restart the Game server. The

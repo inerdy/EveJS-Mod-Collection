@@ -76,6 +76,16 @@ class SalvageBuddyWindow(Window):
             label='Summon SalvageBuddy',
             func=self._request_service,
         )
+        self._send_away = Button(
+            parent=self._body,
+            align=uiconst.TOTOP,
+            height=34,
+            padLeft=10,
+            padTop=6,
+            state=uiconst.UI_HIDDEN,
+            label='Send SalvageBuddy Away',
+            func=self._send_service_away,
+        )
         self._load()
         uthread.new(self._refresh_loop, self._generation)
 
@@ -122,6 +132,8 @@ class SalvageBuddyWindow(Window):
             )
             self._request.state = uiconst.UI_DISABLED
             self._request.SetLabel('SalvageBuddy: %s' % stage)
+            self._send_away.state = uiconst.UI_NORMAL
+            self._send_away.SetLabel('Send SalvageBuddy Away')
         else:
             self._status.SetText(
                 '%s\n%s %s ISK\n%s' % (
@@ -135,6 +147,7 @@ class SalvageBuddyWindow(Window):
             self._request.SetLabel(
                 'Cooldown: %ss' % cooldown if cooldown > 0 else 'Summon SalvageBuddy'
             )
+            self._send_away.state = uiconst.UI_HIDDEN
         self._details.SetText(
             _color(_COLOR_MUTED, 'Only one service can be active at a time.\n') +
             _color(_COLOR_MUTED, 'Eligible wrecks and legal cargo containers are handled automatically.')
@@ -147,6 +160,17 @@ class SalvageBuddyWindow(Window):
         except Exception as error:
             if not self.destroyed:
                 self._status.SetText(_color(_COLOR_ERROR, 'SalvageBuddy request failed: %s' % error))
+        finally:
+            if not self.destroyed:
+                self._load()
+
+    def _send_service_away(self, *args):
+        try:
+            state = self._decode(sm.RemoteSvc(_SERVICE).SendAway({}))
+            self._render(state)
+        except Exception as error:
+            if not self.destroyed:
+                self._status.SetText(_color(_COLOR_ERROR, 'Unable to send SalvageBuddy away: %s' % error))
         finally:
             if not self.destroyed:
                 self._load()
