@@ -407,11 +407,17 @@ class SalvageBuddyService extends BaseService {
     const target = scene.getEntityByID(serviceShip.targetShipID);
     const targetPoint = vector(target && target.position) || serviceShip.arrivalPoint;
     if (!targetPoint) return false;
+    const warpStopDistance = Math.max(
+      this._config.approachRangeMeters * 2,
+      this._config.approachRangeMeters + 5000,
+    );
     const warpResult = scene.startSessionlessWarpIngress(
       serviceShip.serviceShipID,
       targetPoint,
       {
-        stopDistance: Math.max(this._config.approachRangeMeters * 4, 20000),
+        // Keep the final approach visible, but do not strand a slow Noctis
+        // twenty kilometres away after it exits warp.
+        stopDistance: warpStopDistance,
         forceImmediateStart: true,
         ingressDurationMs: 2500,
         visibilitySuppressMs: 250,
