@@ -89,13 +89,21 @@ function eligibleItem(item) {
   );
 }
 
-function quantityForItem(item, config) {
+function quantityForItem(item, config, overrides = {}) {
   const volume = Math.max(0.01, Number(item.volume) || 0.01);
+  const targetOrderVolumeM3 = Math.max(
+    0.01,
+    Number(overrides.targetOrderVolumeM3) || config.targetOrderVolumeM3,
+  );
+  const maximumOrderQuantity = Math.max(
+    1,
+    Math.trunc(Number(overrides.maximumOrderQuantity) || config.maximumOrderQuantity),
+  );
   return Math.max(
     config.minimumVolume,
     Math.min(
-      config.maximumOrderQuantity,
-      Math.max(1, Math.floor(config.targetOrderVolumeM3 / volume)),
+      maximumOrderQuantity,
+      Math.max(1, Math.floor(targetOrderVolumeM3 / volume)),
     ),
   );
 }
@@ -114,8 +122,11 @@ class NpcMarketLiquidityService extends BaseService {
     this._state = normalizeState(this._stateStore.load());
     this._ticker = null;
     this._startupTimer = null;
+    this._oreTicker = null;
+    this._oreStartupTimer = null;
     this._tickInProgress = false;
     this._items = null;
+    this._oreItems = null;
     this._priceManifest = null;
     this._daemonCapabilityVerified = false;
     this._daemonStartedAt = "";
@@ -136,13 +147,29 @@ class NpcMarketLiquidityService extends BaseService {
     this._startupTimer.unref?.();
     this._ticker = setInterval(() => void this.tick(), this._config.tickIntervalMs);
     this._ticker.unref?.();
+    if (this._config.oreLiquidity.enabled) {
+      this._oreStartupTimer = setTimeout(() => {
+        this._oreStartupTimer = null;
+        void this.tick({oreOnly: true});
+      }, this._config.initialDelayMs);
+      this._oreStartupTimer.unref?.();
+      this._oreTicker = setInterval(
+        () => void this.tick({oreOnly: true}),
+        this._config.oreLiquidity.tickIntervalMs,
+      );
+      this._oreTicker.unref?.();
+    }
   }
 
   stop() {
     if (this._startupTimer) clearTimeout(this._startupTimer);
     if (this._ticker) clearInterval(this._ticker);
+    if (this._oreStartupTimer) clearTimeout(this._oreStartupTimer);
+    if (this._oreTicker) clearInterval(this._oreTicker);
     this._startupTimer = null;
     this._ticker = null;
+    this._oreStartupTimer = null;
+    this._oreTicker = null;
     return true;
   }
 
@@ -210,6 +237,17 @@ class NpcMarketLiquidityService extends BaseService {
         .sort((left, right) => positive(left.typeID) - positive(right.typeID));
     }
     return this._items;
+  }
+
+  _listOreItems() {
+    if (!this._oreItems) {
+      const oreTypeIDs = new Set(this._config.oreLiquidity.typeIDs.map(Number));
+      this._oreItems = listItemTypes()
+        .filter(eligibleItem)
+        .filter((item) => oreTypeIDs.has(positive(item.typeID)))
+        .sort((left, right) => positive(left.typeID) - positive(right.typeID));
+    }
+    return this._oreItems;
   }
 
   _fuelSeedItem(typeID) {
@@ -382,10 +420,11 @@ class NpcMarketLiquidityService extends BaseService {
     return result;
   }
 
-  async _placeOrder(station, item, side, slot, reference, existing) {
+  async _placeOrder(station, item, side, slot, reference, existing, overrides = {}) {
     const tiers = side === "buy" ? this._config.buyTiers : this._config.sellTiers;
     const tier = chooseTier(tiers, `${station.stationID}:${item.typeID}:${side}:${slot}`);
     const price = buildPrice(side, tier, reference, this._config.minimumSpreadRatio);
+    const quantity = quantityForItem(item, this._config, overrides);
     const current = existing
       .filter((order) => (
         String(order.state || "open").toLowerCase() === "open" &&
@@ -398,7 +437,20 @@ class NpcMarketLiquidityService extends BaseService {
     let replaced = false;
     if (current) {
       const issuedAt = Date.parse(String(current.issued_at || ""));
-      if (Number.isFinite(issuedAt) && Date.now() - issuedAt < this._config.staleAfterMs) return {created: false, replaced: false};
+      const quantityField = ["vol_remaining", "volume_remain", "quantity"]
+        .find((field) => Object.prototype.hasOwnProperty.call(current, field));
+      const remainingQuantity = quantityField
+        ? positive(current[quantityField], 0)
+        : 0;
+      const needsQuantityRefresh = overrides.replaceIfQuantityBelow === true &&
+        Boolean(quantityField) && remainingQuantity < quantity;
+      if (
+        !needsQuantityRefresh &&
+        Number.isFinite(issuedAt) &&
+        Date.now() - issuedAt < this._config.staleAfterMs
+      ) {
+        return {created: false, replaced: false};
+      }
       if (!this._config.dryRun) await marketDaemonClient.call("CancelOrder", {order_id: current.order_id});
       if (!this._config.dryRun) {
         const currentIndex = existing.indexOf(current);
@@ -407,7 +459,6 @@ class NpcMarketLiquidityService extends BaseService {
       }
       replaced = true;
     }
-    const quantity = quantityForItem(item, this._config);
     if (this._config.dryRun) {
       log.info(`[${MOD_ID}] dry-run ${side} ${item.name} type=${item.typeID} station=${station.stationID} price=${price} quantity=${quantity} tier=${tier.id}`);
       return {created: false, replaced, dryRun: true};
@@ -442,18 +493,26 @@ class NpcMarketLiquidityService extends BaseService {
     return {created: true, replaced};
   }
 
-  async _processHub(station, items, existing, nowMs) {
+  async _processHub(station, items, existing, nowMs, overrides = {}) {
     const key = String(station.stationID);
-    const start = Math.min(this._state.cursorByStation[key] || 0, items.length);
+    const priorityPass = overrides.priority === true;
+    const start = priorityPass
+      ? 0
+      : Math.min(this._state.cursorByStation[key] || 0, items.length);
     const selected = [];
-    for (let offset = 0; offset < Math.min(this._config.itemsPerHubPerTick, items.length); offset += 1) {
+    const itemLimit = priorityPass
+      ? items.length
+      : Math.min(this._config.itemsPerHubPerTick, items.length);
+    for (let offset = 0; offset < itemLimit; offset += 1) {
       selected.push(items[(start + offset) % items.length]);
     }
-    this._state.cursorByStation[key] = items.length > 0
+    if (!priorityPass) {
+      this._state.cursorByStation[key] = items.length > 0
       ? (start + selected.length) % items.length
       : 0;
+    }
     const fuelSeedResult = {created: 0, replaced: 0, skipped: 0, failed: 0, entries: []};
-    for (const configured of this._config.fuelSeeds || []) {
+    for (const configured of priorityPass ? [] : this._config.fuelSeeds || []) {
       const seedHubs = new Set((configured.hubStationIDs || []).map(Number));
       if (configured.enabled === false || !seedHubs.has(Number(station.stationID))) continue;
       const result = await this._processFuelSeed(station, configured, existing, nowMs);
@@ -483,9 +542,21 @@ class NpcMarketLiquidityService extends BaseService {
         manifestFallback += 1;
         if (!isRealMarketSource(reference.source)) calculatedFallback += 1;
       }
-      for (const side of ["buy", "sell"]) {
-        for (let slot = 0; slot < this._config.ordersPerSide; slot += 1) {
-          const result = await this._placeOrder(station, item, side, slot, reference, existing);
+      const sides = overrides.buyOnly === true ? ["buy"] : ["buy", "sell"];
+      const ordersPerSide = Number.isFinite(Number(overrides.ordersPerItem))
+        ? Math.max(1, Math.trunc(Number(overrides.ordersPerItem)))
+        : this._config.ordersPerSide;
+      for (const side of sides) {
+        for (let slot = 0; slot < ordersPerSide; slot += 1) {
+          const result = await this._placeOrder(
+            station,
+            item,
+            side,
+            slot,
+            reference,
+            existing,
+            overrides,
+          );
           if (result.created) created += 1;
           if (result.replaced) replaced += 1;
           if (result.created && !result.replaced) openAtHub += 1;
@@ -493,7 +564,8 @@ class NpcMarketLiquidityService extends BaseService {
       }
     }
     log.info(
-      `[${MOD_ID}] hub=${station.stationID} processed=${selected.length} created=${created} ` +
+      `[${MOD_ID}] hub=${station.stationID} mode=${priorityPass ? "ore-buy" : "standard"} ` +
+      `processed=${selected.length} created=${created} ` +
       `replaced=${replaced} skipped=${skipped} manifestFallback=${manifestFallback} ` +
       `calculatedFallback=${calculatedFallback} at=${nowMs}`,
     );
@@ -535,7 +607,11 @@ class NpcMarketLiquidityService extends BaseService {
     }
   }
 
-  async tick(nowMs = Date.now()) {
+  async tick(options = {}) {
+    const nowMs = typeof options === "number" && Number.isFinite(options)
+      ? options
+      : Date.now();
+    const oreOnly = options && typeof options === "object" && options.oreOnly === true;
     if (!this._config.enabled || this._tickInProgress) return this.getStatus();
     this._tickInProgress = true;
     const totals = {
@@ -552,11 +628,27 @@ class NpcMarketLiquidityService extends BaseService {
     const hubs = [];
     try {
       await this._ensureDaemonSupport();
-      const items = this._listItems();
+      const items = oreOnly ? this._listOreItems() : this._listItems();
+      const orderOverrides = oreOnly
+        ? {
+          priority: true,
+          buyOnly: true,
+          ordersPerItem: this._config.oreLiquidity.ordersPerItem,
+          targetOrderVolumeM3: this._config.oreLiquidity.targetOrderVolumeM3,
+          maximumOrderQuantity: this._config.oreLiquidity.maximumOrderQuantity,
+          replaceIfQuantityBelow: true,
+        }
+        : {};
       const existing = await this._listExistingOrders();
       for (const stationID of this._config.hubStationIDs) {
         const station = this._loadHub(stationID);
-        const result = await this._processHub(station, items, existing, nowMs);
+        const result = await this._processHub(
+          station,
+          items,
+          existing,
+          nowMs,
+          orderOverrides,
+        );
         hubs.push(result);
         totals.created += result.created;
         totals.replaced += result.replaced;

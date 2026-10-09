@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "npcmarketliquidity";
-const MOD_VERSION = "0.3.0";
+const MOD_VERSION = "0.5.0";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const INSTALLED = Symbol.for("evejs.npcMarketLiquidity.loaderInstalled");
 const MARKET_BRIDGE_INSTALLED = Symbol.for("evejs.npcMarketLiquidity.marketBridgeInstalled");

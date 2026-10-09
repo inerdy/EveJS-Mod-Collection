@@ -51,6 +51,9 @@ stopped, then restart the Game server.
 - `enabled`: turns the scheduler on or off.
 - `dryRun`: logs planned orders without creating or replacing market orders.
 - `tickIntervalMs`: delay between replenishment passes. The default is one hour.
+- `oreLiquidity`: dedicated raw-ore buy-order settings. By default, the mod
+  checks the standard ore types every 15 minutes and maintains five larger buy
+  orders per ore at each configured hub.
 - `itemsPerHubPerTick`: limits how many eligible item types each hub processes
   per pass. The cursor is saved, so coverage continues after a restart.
 - `ordersPerSide`: number of simultaneous buy and sell slots per item at each
@@ -58,6 +61,10 @@ stopped, then restart the Game server.
 - `maxActiveOrdersPerHub`: safety cap for this mod's open orders at one hub.
 - `targetOrderVolumeM3` and `maximumOrderQuantity`: determine the quantity of
   each generated order from the item's volume.
+- `oreLiquidity.tickIntervalMs`, `oreLiquidity.ordersPerItem`,
+  `oreLiquidity.targetOrderVolumeM3`, `oreLiquidity.maximumOrderQuantity`, and
+  `oreLiquidity.typeIDs` control the faster ore-buy pass. It only creates buy
+  orders and does not change the normal market pass for other items.
 - `staleAfterMs`: how long an order can remain open before the next pass may
   replace it using a new market reference.
 - `minimumSpreadRatio`: prevents generated orders from crossing the current

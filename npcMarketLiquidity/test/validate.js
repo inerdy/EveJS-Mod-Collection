@@ -12,6 +12,10 @@ const service = require(path.join(__dirname, "..", "lib", "npcMarketLiquiditySer
 const config = normalizeConfig({});
 assert.equal(config.hubStationIDs.length, 5);
 assert.equal(config.ordersPerSide, 3);
+assert.equal(config.oreLiquidity.enabled, true);
+assert.equal(config.oreLiquidity.tickIntervalMs, 900000);
+assert.equal(config.oreLiquidity.ordersPerItem, 5);
+assert.equal(config.oreLiquidity.typeIDs.length, 16);
 assert.equal(config.fuelSeeds.length, 4);
 assert.deepEqual(config.fuelSeeds.map((seed) => seed.typeID), [17889, 16274, 17888, 17887]);
 assert.equal(config.hubFuelSeed.typeID, 17887);
@@ -24,13 +28,17 @@ const migratedState = normalizeState({fuelSeedByStation: {
 assert.equal(migratedState.fuelSeedByStation["60003760"].orderID, "41");
 assert.equal(migratedState.fuelSeedByStation["60003760:17889"].orderID, "42");
 const marketManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "evejs-launcher.mod.json"), "utf8"));
-assert.equal(marketManifest.version, "0.4.0");
+assert.equal(marketManifest.version, "0.5.0");
 assert.equal(config.priceManifestEnabled, true);
 assert.equal(config.allowCalculatedManifestPrices, true);
 assert.equal(config.priceManifestPath.endsWith(path.join("mods", "npcMarketLiquidity", "data", "price-manifest.json")), true);
 assert.equal(service._testing.eligibleItem({typeID: 34, published: true, marketGroupID: 18, volume: 0.01, portionSize: 1}), true);
 assert.equal(service._testing.eligibleItem({typeID: 34, published: true, marketGroupID: null, volume: 0.01, portionSize: 1}), false);
 assert.equal(service._testing.quantityForItem({volume: 0.01}, config), 500000);
+assert.equal(
+  service._testing.quantityForItem({volume: 0.1}, config, config.oreLiquidity),
+  250000,
+);
 assert.equal(service._testing.orderSource(60003760, 34, "buy", 0), "npc-passive:60003760:34:buy:0");
 
 const reference = pricing.buildReference({
