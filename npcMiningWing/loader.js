@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "npcminingwing";
-const MOD_VERSION = "0.10.0";
+const MOD_VERSION = "0.10.1";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const INSTALLED = Symbol.for("evejs.npcMiningWing.loaderInstalled");
 

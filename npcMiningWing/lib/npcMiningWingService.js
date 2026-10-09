@@ -4414,6 +4414,16 @@ class NpcMiningWingService extends BaseService {
       miningState.nextCycleAtMs = Date.now() + MINING_RETRY_MS;
       return false;
     }
+    if (
+      positive(character.collectionShipID) &&
+      character.collectionTrip &&
+      character.collectionTrip.active === true
+    ) {
+      miningState.status = "cargo-waiting";
+      miningState.lastError = "NPC_WING_COLLECTION_TRIP_ACTIVE";
+      miningState.nextCycleAtMs = Date.now() + MINING_RETRY_MS;
+      return false;
+    }
     const collectionShipID = this._availableCollectionShipID(
       character,
       characterID,
@@ -4513,6 +4523,26 @@ class NpcMiningWingService extends BaseService {
     }
 
     const failure = transfer.failed[0];
+    if (
+      collectionShipID &&
+      failure &&
+      String(failure.error || "") === "NPC_WING_DESTINATION_HOLD_FULL"
+    ) {
+      try {
+        this._startCollectionTrip(session, characterID, character, {automatic: true});
+      } catch (error) {
+        log.warn(
+          `[NPCMiningWing] automatic collection trip could not start ` +
+            `char=${characterID} ship=${collectionShipID} error=${error.message}`,
+        );
+      }
+      if (character.collectionTrip && character.collectionTrip.active === true) {
+        miningState.status = "cargo-waiting";
+        miningState.lastError = "NPC_WING_COLLECTION_TRIP_ACTIVE";
+        miningState.nextCycleAtMs = Date.now() + MINING_RETRY_MS;
+        return false;
+      }
+    }
     miningState.status = "cargo-waiting";
     miningState.lastError = String(
       failure && failure.error || "NPC_WING_DESTINATION_HOLD_FULL",
@@ -5520,7 +5550,7 @@ class NpcMiningWingService extends BaseService {
     return this.Handle_GetWingState(args, session);
   }
 
-  _startCollectionTrip(session, characterID, character) {
+  _startCollectionTrip(session, characterID, character, options = {}) {
     const {runtime, scene, systemID, leader} = this._spaceContext(session);
     const collectionShipID = positive(character.collectionShipID);
     if (!collectionShipID) {
@@ -5597,7 +5627,9 @@ class NpcMiningWingService extends BaseService {
       session,
       characterID,
       collectionShipID,
-      `Collection ship sent to ${dockableLocationName(stationID) || "its saved station"} to unload ore.`,
+      options.automatic === true
+        ? `Collection ship cargo is full. It is unloading at ${dockableLocationName(stationID) || "its saved station"} and will return automatically.`
+        : `Collection ship sent to ${dockableLocationName(stationID) || "its saved station"} to unload ore.`,
     );
     return this._tickCollectionTrip(runtime, characterID, character) || true;
   }

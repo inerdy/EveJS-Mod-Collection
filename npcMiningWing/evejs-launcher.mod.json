@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "npcminingwing",
   "displayName": "NPC Mining Wing",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Command marked player-owned ships with automatic mining, collection-ship logistics, and combat drone support.",
   "kind": "loader",
   "supportedBackends": ["native"],

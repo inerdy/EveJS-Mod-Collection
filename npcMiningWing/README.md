@@ -16,6 +16,8 @@ modules, cargo holds, mining holds, drones, and the commanding pilot's skills.
 - Use fitted mining modules and compatible mining or combat drones.
 - Automatically return to unload when mining holds are full.
 - Designate one marked ship as the collection ship so miners unload into it.
+- Automatically send a full collection ship to its saved station, unload its
+  mining cargo, and return it to the wing.
 - Send the collection ship to its saved station to unload, then return it to the wing.
 - Recall ships to their saved launch station, including across systems.
 - Show ship location, cargo, mining, drone, and combat status in the in-game UI.

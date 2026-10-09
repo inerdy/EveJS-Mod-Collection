@@ -36,7 +36,7 @@ assert.deepEqual(packageFiles.sort(), [
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npcminingwing");
-assert.equal(manifest.version, "0.10.0");
+assert.equal(manifest.version, "0.10.1");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -149,6 +149,9 @@ assert.match(service, /CARGO_FOLLOW_RANGE_METERS/);
 assert.match(service, /isMiningOutputItem/);
 assert.match(service, /cargoReturn/);
 assert.match(service, /cargo-waiting/);
+assert.match(service, /NPC_WING_DESTINATION_HOLD_FULL/);
+assert.match(service, /automatic: true/);
+assert.match(service, /NPC_WING_COLLECTION_TRIP_ACTIVE/);
 assert.match(service, /_transferCargoForShip/);
 assert.match(service, /miningRuntimeState/);
 assert.match(service, /_applyWingSkillProfile/);
