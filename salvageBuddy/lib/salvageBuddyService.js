@@ -346,14 +346,63 @@ class SalvageBuddyService extends BaseService {
   }
 
   _serviceShipEntity(request) {
-    return request.serviceShip && request.scene
-      ? request.scene.getEntityByID(request.serviceShip.serviceShipID)
+    const scene = this._serviceShipScene(request);
+    return request.serviceShip && scene && typeof scene.getEntityByID === "function"
+      ? scene.getEntityByID(request.serviceShip.serviceShipID)
       : null;
+  }
+
+  _serviceShipScene(request) {
+    const serviceShip = request && request.serviceShip;
+    if (
+      serviceShip &&
+      serviceShip.scene &&
+      typeof serviceShip.scene.getEntityByID === "function" &&
+      serviceShip.scene.getEntityByID(serviceShip.serviceShipID)
+    ) {
+      return serviceShip.scene;
+    }
+    if (
+      serviceShip &&
+      typeof spaceRuntime.findSceneContainingDynamicEntity === "function"
+    ) {
+      const scene = spaceRuntime.findSceneContainingDynamicEntity(serviceShip.serviceShipID);
+      if (scene) serviceShip.scene = scene;
+      return scene || null;
+    }
+    return null;
+  }
+
+  _isEntityWarping(entity) {
+    return Boolean(
+      entity && (
+        entity.mode === "WARP" ||
+        entity.pendingWarp ||
+        entity.warpState ||
+        entity.sessionlessWarpIngress
+      ),
+    );
+  }
+
+  _approachTimeoutMs(source, target, rangeMeters) {
+    const configured = this._config.approachTimeoutMs;
+    const remainingDistance = Math.max(
+      0,
+      distanceMeters(source && source.position, target && target.position) - rangeMeters,
+    );
+    const maxVelocity = Math.max(0, finite(source && source.maxVelocity, 0));
+    if (remainingDistance <= 0 || maxVelocity <= 0) return configured;
+
+    // Leave room for acceleration, turning, and a slow final approach. This is
+    // especially important for the Noctis: the ship lands about 20 km out and
+    // only then begins its ordinary subwarp approach.
+    const estimated = Math.ceil((remainingDistance / maxVelocity) * 1000 * 1.75 + 10000);
+    return Math.min(300000, Math.max(configured, estimated));
   }
 
   async _bringToPlayer(request) {
     const serviceShip = request.serviceShip;
-    const scene = serviceShip && serviceShip.scene;
+    const scene = this._serviceShipScene(request);
     if (!scene || typeof scene.startSessionlessWarpIngress !== "function") return false;
     const target = scene.getEntityByID(serviceShip.targetShipID);
     const targetPoint = vector(target && target.position) || serviceShip.arrivalPoint;
@@ -374,22 +423,30 @@ class SalvageBuddyService extends BaseService {
   }
 
   async _waitNear(request, targetID, rangeMeters, timeoutMs = this._config.approachTimeoutMs) {
-    const scene = request.serviceShip && request.serviceShip.scene;
-    const deadline = Date.now() + timeoutMs;
+    const scene = this._serviceShipScene(request);
+    let deadline = Date.now() + timeoutMs;
+    let followStarted = false;
     while (Date.now() < deadline) {
       if (request.cancelRequested === true) return false;
       const source = scene && scene.getEntityByID(request.serviceShip.serviceShipID);
       const target = scene && scene.getEntityByID(targetID);
       if (!source || !target) return false;
       if (distanceMeters(source.position, target.position) <= rangeMeters) return true;
-      if (
-        source.mode !== "WARP" && !source.pendingWarp && !source.warpState &&
-        !source.sessionlessWarpIngress && typeof scene.followShipEntity === "function"
-      ) {
-        scene.followShipEntity(request.serviceShipID, targetID, rangeMeters, {
-          queueHistorySafeContract: true,
-          suppressFreshAcquireReplay: true,
-        });
+      if (!this._isEntityWarping(source)) {
+        if (!followStarted && typeof scene.followShipEntity === "function") {
+          const followResult = scene.followShipEntity(
+            request.serviceShipID,
+            targetID,
+            rangeMeters,
+            {
+              queueHistorySafeContract: true,
+              suppressFreshAcquireReplay: true,
+            },
+          );
+          if (followResult === false) return false;
+          followStarted = true;
+          deadline = Math.max(deadline, Date.now() + this._approachTimeoutMs(source, target, rangeMeters));
+        }
       }
       await delay(this._config.pollIntervalMs);
     }
@@ -423,7 +480,7 @@ class SalvageBuddyService extends BaseService {
   }
 
   _eligibleTargets(request, session) {
-    const scene = request.serviceShip && request.serviceShip.scene;
+    const scene = this._serviceShipScene(request);
     const source = this._serviceShipEntity(request);
     if (!scene || !source || !(scene.dynamicEntities instanceof Map)) return [];
     return [...scene.dynamicEntities.values()]
@@ -526,7 +583,7 @@ class SalvageBuddyService extends BaseService {
 
   async _useTractor(request, session, targetEntity, workers) {
     if (request.cancelRequested === true) return false;
-    const scene = request.serviceShip.scene;
+    const scene = this._serviceShipScene(request);
     const source = this._serviceShipEntity(request);
     const tractor = workers.tractors[0];
     if (!source || !tractor || !targetEntity) return false;
@@ -587,7 +644,7 @@ class SalvageBuddyService extends BaseService {
   }
 
   async _salvageTarget(request, session, targetEntity, workers) {
-    const scene = request.serviceShip.scene;
+    const scene = this._serviceShipScene(request);
     const source = this._serviceShipEntity(request);
     const serviceShipItem = itemStore.findItemById(request.serviceShip.serviceShipID);
     const playerShip = itemStore.findItemById(request.playerShipID);
@@ -666,7 +723,7 @@ class SalvageBuddyService extends BaseService {
 
   async _sendAway(request) {
     const serviceShip = request.serviceShip;
-    const scene = serviceShip && serviceShip.scene;
+    const scene = this._serviceShipScene(request);
     if (request.departureStarted === true) return;
     request.departureStarted = true;
     if (!scene || !serviceShip.departurePoint || typeof scene.startSessionlessWarpIngress !== "function") {
@@ -694,25 +751,47 @@ class SalvageBuddyService extends BaseService {
 
   async _removeServiceShip(request) {
     const serviceShip = request && request.serviceShip;
-    if (!serviceShip) return;
+    if (!serviceShip) return true;
+    const scene = this._serviceShipScene(request);
+    let removed = false;
+    let removedFromScene = false;
     try {
+      const entity = scene && typeof scene.getEntityByID === "function"
+        ? scene.getEntityByID(serviceShip.serviceShipID)
+        : null;
+      if (entity && typeof scene.stopShipEntity === "function") {
+        scene.stopShipEntity(entity, {
+          allowSessionlessWarpAbort: true,
+          reason: "salvage-buddy-cleanup",
+        });
+      }
       const result = spaceRuntime.destroyDynamicInventoryEntity(
         serviceShip.systemID,
         serviceShip.serviceShipID,
         {
-          sceneDescriptor: serviceShip.scene && serviceShip.scene.sceneDescriptor,
+          sceneDescriptor: scene && scene.sceneDescriptor,
           broadcast: true,
           actor: request.characterID,
         },
       );
-      if (!result || result.success !== true) {
-        itemStore.removeInventoryItem(serviceShip.serviceShipID, {removeContents: true});
+      removed = Boolean(result && result.success === true);
+      if (!removed && scene && typeof scene.removeDynamicEntity === "function") {
+        const sceneResult = scene.removeDynamicEntity(serviceShip.serviceShipID, {
+          broadcast: true,
+          persistSpaceState: false,
+          allowSessionOwned: true,
+        });
+        removed = Boolean(sceneResult && sceneResult.success === true);
+        removedFromScene = removed;
       }
     } catch (error) {
       log.debug(`[${MOD_ID}] service ship cleanup failed: ${error.message}`);
+    }
+    if (!removed || removedFromScene) {
       itemStore.removeInventoryItem(serviceShip.serviceShipID, {removeContents: true});
     }
     request.serviceShip = null;
+    return removed;
   }
 
   async _cancelRequest(request, session) {
@@ -777,8 +856,8 @@ class SalvageBuddyService extends BaseService {
     } catch (error) {
       request.status = "failed";
       request.stage = "failed";
-      if (!request.deliveryStarted) await this._refund(request);
       await this._removeServiceShip(request);
+      if (!request.deliveryStarted) await this._refund(request);
       this._send(
         session,
         request.refunded

@@ -19,7 +19,7 @@ const DEFAULT_CONFIG = Object.freeze({
   salvageDroneCount: 5,
   spawnDistanceAU: 1,
   approachRangeMeters: 5000,
-  approachTimeoutMs: 30000,
+  approachTimeoutMs: 180000,
   serviceLifetimeMs: 900000,
   departureDelayMs: 5000,
   pollIntervalMs: 250,
