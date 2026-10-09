@@ -756,6 +756,12 @@ class SalvageBuddyService extends BaseService {
     return Boolean(result && result.success === true);
   }
 
+  _emitDroneState(droneEntity) {
+    if (typeof droneRuntime.emitDroneStateChange === "function") {
+      droneRuntime.emitDroneStateChange(droneEntity);
+    }
+  }
+
   async _deployServiceDrones(request) {
     const scene = this._serviceShipScene(request);
     const source = this._serviceShipEntity(request);
@@ -856,7 +862,7 @@ class SalvageBuddyService extends BaseService {
         {broadcast: false, speedFraction: 0.5},
       );
       this._persistDroneEntity(drone);
-      droneRuntime.emitDroneStateChange(drone);
+      this._emitDroneState(drone);
       deployed.push(drone);
     }
 
@@ -934,7 +940,7 @@ class SalvageBuddyService extends BaseService {
         {broadcast: false, speedFraction: 0.5},
       );
       this._persistDroneEntity(drone);
-      droneRuntime.emitDroneStateChange(drone);
+      this._emitDroneState(drone);
       deployed.push(drone);
     }
 
@@ -998,7 +1004,7 @@ class SalvageBuddyService extends BaseService {
         liveDrone.activityState = droneRuntime.STATE_SALVAGING;
       }
       this._persistDroneEntity(liveDrone);
-      droneRuntime.emitDroneStateChange(liveDrone);
+      this._emitDroneState(liveDrone);
       assigned += 1;
     }
     return assigned;

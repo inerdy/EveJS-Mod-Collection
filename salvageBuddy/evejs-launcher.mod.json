@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "salvagebuddy",
   "displayName": "SalvageBuddy",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Deploys temporary Salvage Drone IIs to recover nearby wrecks and collect legal cargo containers for a 120,000 ISK fee.",
   "kind": "loader",
   "supportedBackends": ["native"],
