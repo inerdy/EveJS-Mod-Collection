@@ -173,6 +173,7 @@ class SalvageBuddyService extends BaseService {
       stage: request ? request.stage : "idle",
       targetsProcessed: request ? request.targetsProcessed : 0,
       targetsFound: request ? request.targetsFound : 0,
+      targetsRemaining: request ? request.targetsRemaining : 0,
       lastStatus: character.lastStatus || "",
       canRequest: this._config.enabled === true &&
         isInSpaceSession(session) &&
@@ -635,8 +636,14 @@ class SalvageBuddyService extends BaseService {
   _eligibleTargets(request, session) {
     const scene = this._serviceShipScene(request);
     const source = this._serviceShipEntity(request);
-    if (!scene || !source || !(scene.dynamicEntities instanceof Map)) return [];
-    return [...scene.dynamicEntities.values()]
+    if (!scene || !source) return [];
+    const entities = typeof scene.getAllVisibleEntities === "function"
+      ? scene.getAllVisibleEntities()
+      : [
+        ...(Array.isArray(scene.staticEntities) ? scene.staticEntities : []),
+        ...(scene.dynamicEntities instanceof Map ? [...scene.dynamicEntities.values()] : []),
+      ];
+    return [...new Map(entities.filter(Boolean).map((target) => [String(target.itemID), target])).values()]
       .filter((target) => target && target.itemID !== source.itemID)
       .filter((target) =>
         salvagerRuntime.isSalvageableTarget(target) ||
@@ -644,6 +651,22 @@ class SalvageBuddyService extends BaseService {
       )
       .sort((left, right) =>
         distanceMeters(source.position, left.position) - distanceMeters(source.position, right.position));
+  }
+
+  _recordTargetProgress(request, targets) {
+    if (!(request.discoveredTargetIDs instanceof Set)) {
+      request.discoveredTargetIDs = new Set(
+        Array.isArray(request.discoveredTargetIDs)
+          ? request.discoveredTargetIDs.map((itemID) => positive(itemID)).filter(Boolean)
+          : [],
+      );
+    }
+    for (const target of targets || []) {
+      const targetID = positive(target && target.itemID);
+      if (targetID > 0) request.discoveredTargetIDs.add(targetID);
+    }
+    request.targetsFound = request.discoveredTargetIDs.size;
+    request.targetsRemaining = Array.isArray(targets) ? targets.length : 0;
   }
 
   _syncChanges(session, changes, shipID) {
@@ -1418,7 +1441,7 @@ class SalvageBuddyService extends BaseService {
       while (Date.now() < deadline) {
         if (request.cancelRequested === true) return await this._cancelRequest(request, session);
         const targets = this._eligibleTargets(request, session);
-        request.targetsFound = targets.length;
+        this._recordTargetProgress(request, targets);
         if (targets.length <= 0) break;
         const target = targets[0];
         request.targetID = positive(target.itemID);
@@ -1492,7 +1515,7 @@ class SalvageBuddyService extends BaseService {
       while (Date.now() < deadline) {
         if (request.cancelRequested === true) return await this._cancelRequest(request, session);
         const targets = this._eligibleTargets(request, session);
-        request.targetsFound = targets.length;
+        this._recordTargetProgress(request, targets);
         if (targets.length <= 0) break;
         const target = targets[0];
         request.targetID = positive(target.itemID);
@@ -1593,6 +1616,8 @@ class SalvageBuddyService extends BaseService {
       targetID: 0,
       targetsProcessed: 0,
       targetsFound: 0,
+      targetsRemaining: 0,
+      discoveredTargetIDs: new Set(),
       deployedDrones: [],
       deployedDroneIDs: [],
       cancelRequested: false,

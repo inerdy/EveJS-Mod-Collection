@@ -43,7 +43,7 @@ class SalvageBuddyWindow(Window):
     default_windowID = _WINDOW_ID
     default_caption = 'SalvageBuddy'
     default_width = 430
-    default_height = 270
+    default_height = 300
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
@@ -51,11 +51,11 @@ class SalvageBuddyWindow(Window):
         self._closed = False
         self._generation = 0
         self._send_away_pending = False
-        self._body = Container(parent=self.content, align=uiconst.TOTOP, height=220, padding=(8, 8, 8, 8))
+        self._body = Container(parent=self.content, align=uiconst.TOTOP, height=250, padding=(8, 8, 8, 8))
         self._status = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,
-            height=105,
+            height=90,
             padLeft=10,
             padTop=8,
             text=_color(_COLOR_MUTED, 'Loading SalvageBuddy status...'),
@@ -63,7 +63,7 @@ class SalvageBuddyWindow(Window):
         self._details = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,
-            height=58,
+            height=72,
             padLeft=10,
             padTop=4,
             text='',
@@ -123,12 +123,13 @@ class SalvageBuddyWindow(Window):
         stage = state.get('stage', 'idle')
         processed = _integer(state.get('targetsProcessed'), 0)
         found = _integer(state.get('targetsFound'), 0)
+        remaining = _integer(state.get('targetsRemaining'), 0)
         if active:
             self._status.SetText(
                 '%s\n%s %s\n%s %s' % (
                     _color(_COLOR_LABEL, 'SalvageBuddy is active.'),
                     _color(_COLOR_LABEL, 'Stage:'), _color(_COLOR_ACTIVE, stage),
-                    _color(_COLOR_LABEL, 'Targets:'), _color(_COLOR_ACTIVE, '%s processed / %s found' % (processed, found)),
+                    _color(_COLOR_LABEL, 'Targets:'), _color(_COLOR_ACTIVE, '%s processed / %s discovered (%s remaining)' % (processed, found, remaining)),
                 )
             )
             self._request.state = uiconst.UI_DISABLED
@@ -138,9 +139,9 @@ class SalvageBuddyWindow(Window):
         else:
             self._status.SetText(
                 '%s\n%s %s ISK\n%s' % (
-                    _color(_COLOR_LABEL, 'Summon a fitted Noctis salvage service.'),
+                    _color(_COLOR_LABEL, 'Summon five temporary Salvage Drone IIs.'),
                     _color(_COLOR_LABEL, 'Service fee:'), _color(_COLOR_FEE, _format_isk(fee)),
-                    _color(_COLOR_MUTED, 'Uses Tractor Beams, Salvager II modules, and Salvage Drone II support.'),
+                    _color(_COLOR_MUTED, 'Wrecks and legal cargo containers are handled automatically.'),
                 )
             )
             can_request = state.get('canRequest') is True
@@ -150,8 +151,9 @@ class SalvageBuddyWindow(Window):
             )
             self._send_away.state = uiconst.UI_DISABLED
         self._details.SetText(
-            _color(_COLOR_MUTED, 'Only one service can be active at a time.\n') +
-            _color(_COLOR_MUTED, 'Eligible wrecks and legal cargo containers are handled automatically.')
+            _color(_COLOR_MUTED, 'One service at a time. Cooldown: 2 minutes.\n') +
+            _color(_COLOR_MUTED, 'Five temporary drones search the active site.\n') +
+            _color(_COLOR_MUTED, 'They cannot be returned to your drone bay.')
         )
 
     def _request_service(self, *args):

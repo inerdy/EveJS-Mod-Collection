@@ -2,7 +2,7 @@
   "enabled": true,
   "droneOnly": true,
   "serviceFeeISK": 120000,
-  "cooldownSeconds": 300,
+  "cooldownSeconds": 120,
   "noctisTypeID": 2998,
   "afterburnerTypeID": 12058,
   "tractorBeamTypeID": 24622,

@@ -10,11 +10,11 @@ const config = JSON.parse(fs.readFileSync(path.join(root, "config", "salvageBudd
 const normalized = require(path.join(root, "lib", "config")).normalizeConfig(config);
 
 assert.equal(manifest.id, "salvagebuddy");
-assert.equal(manifest.version, "0.2.8");
+assert.equal(manifest.version, "0.2.9");
 assert.equal(normalized.droneOnly, true);
 assert.equal(manifest.clientMenu.entrypoint, "client/menu.py");
 assert.equal(normalized.serviceFeeISK, 120000);
-assert.equal(normalized.cooldownSeconds, 300);
+assert.equal(normalized.cooldownSeconds, 120);
 assert.equal(normalized.approachTimeoutMs, 180000);
 assert.equal(normalized.noctisTypeID, 2998);
 assert.equal(normalized.afterburnerTypeID, 12058);
@@ -42,6 +42,8 @@ assert.match(service, /_deployServiceDrones/u);
 assert.match(service, /_spawnPlayerServiceDrones/u);
 assert.match(service, /_runDroneOnlyRequest/u);
 assert.match(service, /DRONE_COMMAND_SALVAGE/u);
+assert.match(service, /targetsRemaining/u);
+assert.match(service, /getAllVisibleEntities/u);
 assert.match(service, /_positionForTractor/u);
 assert.match(service, /DRONE_LAUNCH/u);
 assert.match(service, /adjustCharacterBalanceAsync/u);
@@ -49,5 +51,10 @@ assert.match(service, /RequestSalvage/u);
 assert.match(service, /Handle_SendAway/u);
 assert.match(menu, /state=uiconst\.UI_DISABLED/u);
 assert.match(menu, /_send_away_pending/u);
+assert.match(menu, /Cooldown: 2 minutes/u);
+assert.match(menu, /discovered/u);
+const loader = fs.readFileSync(path.join(root, "loader.js"), "utf8");
+assert.match(loader, /Handle_CmdReturnBay/u);
+assert.match(loader, /temporary SalvageBuddy drone/u);
 
 console.log("salvageBuddy validation passed");
