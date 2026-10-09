@@ -449,8 +449,25 @@ class SalvageBuddyService extends BaseService {
               suppressFreshAcquireReplay: true,
             },
           );
-          if (followResult === false) return false;
-          followStarted = true;
+          if (followResult !== false) {
+            followStarted = true;
+          } else if (typeof scene.startSessionlessWarpIngress === "function") {
+            const warpResult = scene.startSessionlessWarpIngress(
+              request.serviceShipID,
+              target.position,
+              {
+                stopDistance: Math.max(rangeMeters, this._config.approachRangeMeters),
+                forceImmediateStart: true,
+                ingressDurationMs: 1500,
+                visibilitySuppressMs: 250,
+                broadcastWarpStartToVisibleSessions: true,
+              },
+            );
+            if (!warpResult || warpResult.success !== true) return false;
+            followStarted = true;
+          } else {
+            return false;
+          }
           deadline = Math.max(deadline, Date.now() + this._approachTimeoutMs(source, target, rangeMeters));
         }
       }
@@ -834,8 +851,17 @@ class SalvageBuddyService extends BaseService {
         request.targetID = positive(target.itemID);
         const workers = this._fittedWorkers(request.serviceShipID);
         const tractorRange = workers.tractors.length > 0 ? 20000 : this._config.approachRangeMeters;
-        await this._waitNear(request, target.itemID, tractorRange, this._config.approachTimeoutMs);
+        const reachedTarget = await this._waitNear(
+          request,
+          target.itemID,
+          tractorRange,
+          this._config.approachTimeoutMs,
+        );
         if (request.cancelRequested === true) return await this._cancelRequest(request, session);
+        if (!reachedTarget) {
+          this._send(session, "SalvageBuddy could not reach a salvage target and is returning.");
+          break;
+        }
         await this._useTractor(request, session, target, workers);
         if (request.cancelRequested === true) return await this._cancelRequest(request, session);
         const currentTarget = request.serviceShip.scene.getEntityByID(target.itemID);
