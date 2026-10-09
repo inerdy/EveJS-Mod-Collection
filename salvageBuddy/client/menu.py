@@ -50,6 +50,7 @@ class SalvageBuddyWindow(Window):
         Window.ApplyAttributes(self, attributes)
         self._closed = False
         self._generation = 0
+        self._send_away_pending = False
         self._body = Container(parent=self.content, align=uiconst.TOTOP, height=220, padding=(8, 8, 8, 8))
         self._status = EveLabelMedium(
             parent=self._body,
@@ -82,7 +83,7 @@ class SalvageBuddyWindow(Window):
             height=34,
             padLeft=10,
             padTop=6,
-            state=uiconst.UI_HIDDEN,
+            state=uiconst.UI_DISABLED,
             label='Send SalvageBuddy Away',
             func=self._send_service_away,
         )
@@ -147,7 +148,7 @@ class SalvageBuddyWindow(Window):
             self._request.SetLabel(
                 'Cooldown: %ss' % cooldown if cooldown > 0 else 'Summon SalvageBuddy'
             )
-            self._send_away.state = uiconst.UI_HIDDEN
+            self._send_away.state = uiconst.UI_DISABLED
         self._details.SetText(
             _color(_COLOR_MUTED, 'Only one service can be active at a time.\n') +
             _color(_COLOR_MUTED, 'Eligible wrecks and legal cargo containers are handled automatically.')
@@ -165,6 +166,11 @@ class SalvageBuddyWindow(Window):
                 self._load()
 
     def _send_service_away(self, *args):
+        if self._send_away_pending:
+            return
+        self._send_away_pending = True
+        self._send_away.state = uiconst.UI_DISABLED
+        self._send_away.SetLabel('Sending SalvageBuddy Away...')
         try:
             state = self._decode(sm.RemoteSvc(_SERVICE).SendAway({}))
             self._render(state)
@@ -172,6 +178,7 @@ class SalvageBuddyWindow(Window):
             if not self.destroyed:
                 self._status.SetText(_color(_COLOR_ERROR, 'Unable to send SalvageBuddy away: %s' % error))
         finally:
+            self._send_away_pending = False
             if not self.destroyed:
                 self._load()
 
