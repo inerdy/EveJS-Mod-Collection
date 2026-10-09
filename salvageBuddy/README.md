@@ -1,23 +1,23 @@
 # SalvageBuddy
 
-SalvageBuddy summons a temporary, server-controlled Noctis to the player's
-current location. The default fit is a 10MN Afterburner II, four Large Tractor
-Beam I modules, four Salvager II modules, and five Salvage Drone II workers.
+SalvageBuddy deploys five temporary, server-controlled Salvage Drone IIs around
+the player's active ship. The drones use the player's ship as their controller,
+salvage eligible wrecks, and return the recovered materials to the player's
+cargo hold.
 
 The service scans the current solar system for salvageable wrecks and legal,
-unanchored cargo containers. It warps in from one AU, activates its afterburner,
-warps to tractor-beam range instead of flying to each wreck, pulls targets in
-with all four tractors, deploys its Salvage Drone IIs, and transfers recovered
-items directly into the player's active ship cargo hold before warping away.
+unanchored cargo containers. It deploys the drones beside the player, assigns
+them eligible wrecks, waits for them to return their salvage, collects legal
+cargo containers, and removes the temporary drones when finished.
 
 Each request costs 120,000 ISK. The fee is charged when the request is accepted;
-if the temporary Noctis cannot spawn or cannot arrive, the fee is refunded. A
-character may have only one active request and receives a five-minute cooldown
-after each accepted request.
+if the temporary drones cannot be deployed, the fee is refunded. A character
+may have only one active request and receives a five-minute cooldown after each
+accepted request.
 
 While the service is active, the Mods-menu window includes **Send SalvageBuddy
-Away**. This stops additional work and sends the Noctis away without refunding
-the already accepted service fee.
+Away**. This stops additional work and recalls/removes the drones without
+refunding the already accepted service fee.
 
 ## Installation
 
@@ -32,10 +32,9 @@ are configurable, including:
 
 - `serviceFeeISK`
 - `cooldownSeconds`
-- `tractorBeamTypeID` / `tractorBeamCount`
-- `salvagerTypeID` / `salvagerCount`
 - `salvageDroneTypeID` / `salvageDroneCount`
-- `spawnDistanceAU`, `approachRangeMeters`, and service timeouts
+- `droneOnly`
+- service timeouts
 
 Runtime request history is stored outside the mod package at:
 

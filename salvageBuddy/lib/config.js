@@ -8,6 +8,7 @@ const LOCAL_CONFIG_PATH = path.join(__dirname, "..", "config", "salvageBuddy.loc
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
+  droneOnly: true,
   serviceFeeISK: 120000,
   cooldownSeconds: 300,
   noctisTypeID: 2998,
@@ -41,6 +42,7 @@ function normalizeConfig(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   return Object.freeze({
     enabled: source.enabled !== false,
+    droneOnly: source.droneOnly !== false,
     serviceFeeISK: Math.max(0, Math.round(number(source.serviceFeeISK, DEFAULT_CONFIG.serviceFeeISK) * 100) / 100),
     cooldownSeconds: integer(source.cooldownSeconds, DEFAULT_CONFIG.cooldownSeconds, 0, 864000),
     noctisTypeID: integer(source.noctisTypeID, DEFAULT_CONFIG.noctisTypeID, 1, 1000000000),

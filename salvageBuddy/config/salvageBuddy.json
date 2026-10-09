@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "droneOnly": true,
   "serviceFeeISK": 120000,
   "cooldownSeconds": 300,
   "noctisTypeID": 2998,

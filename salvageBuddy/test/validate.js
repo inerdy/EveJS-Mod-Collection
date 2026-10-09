@@ -10,7 +10,8 @@ const config = JSON.parse(fs.readFileSync(path.join(root, "config", "salvageBudd
 const normalized = require(path.join(root, "lib", "config")).normalizeConfig(config);
 
 assert.equal(manifest.id, "salvagebuddy");
-assert.equal(manifest.version, "0.2.6");
+assert.equal(manifest.version, "0.2.7");
+assert.equal(normalized.droneOnly, true);
 assert.equal(manifest.clientMenu.entrypoint, "client/menu.py");
 assert.equal(normalized.serviceFeeISK, 120000);
 assert.equal(normalized.cooldownSeconds, 300);
@@ -38,6 +39,8 @@ assert.match(service, /executeSalvagerCycle/u);
 assert.match(service, /resolveTractorBeamActivation/u);
 assert.match(service, /activatePropulsionModule/u);
 assert.match(service, /_deployServiceDrones/u);
+assert.match(service, /_spawnPlayerServiceDrones/u);
+assert.match(service, /_runDroneOnlyRequest/u);
 assert.match(service, /DRONE_COMMAND_SALVAGE/u);
 assert.match(service, /_positionForTractor/u);
 assert.match(service, /DRONE_LAUNCH/u);

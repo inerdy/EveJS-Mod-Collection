@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "salvagebuddy";
-const MOD_VERSION = "0.2.6";
+const MOD_VERSION = "0.2.7";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const INSTALLED = Symbol.for("evejs.salvageBuddy.loaderInstalled");
 
