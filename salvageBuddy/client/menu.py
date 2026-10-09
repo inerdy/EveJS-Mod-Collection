@@ -43,7 +43,7 @@ class SalvageBuddyWindow(Window):
     default_windowID = _WINDOW_ID
     default_caption = 'SalvageBuddy'
     default_width = 430
-    default_height = 300
+    default_height = 330
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
@@ -51,11 +51,11 @@ class SalvageBuddyWindow(Window):
         self._closed = False
         self._generation = 0
         self._send_away_pending = False
-        self._body = Container(parent=self.content, align=uiconst.TOTOP, height=250, padding=(8, 8, 8, 8))
+        self._body = Container(parent=self.content, align=uiconst.TOTOP, height=280, padding=(8, 8, 8, 8))
         self._status = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,
-            height=90,
+            height=74,
             padLeft=10,
             padTop=8,
             text=_color(_COLOR_MUTED, 'Loading SalvageBuddy status...'),
@@ -63,7 +63,7 @@ class SalvageBuddyWindow(Window):
         self._details = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,
-            height=72,
+            height=58,
             padLeft=10,
             padTop=4,
             text='',
@@ -116,8 +116,15 @@ class SalvageBuddyWindow(Window):
             except Exception:
                 break
 
+    def _is_true(self, value):
+        if value is True:
+            return True
+        if isinstance(value, basestring):
+            return value.strip().lower() in ('true', '1', 'yes')
+        return False
+
     def _render(self, state):
-        active = state.get('active') is True
+        active = self._is_true(state.get('active')) or self._is_true(state.get('canSendAway'))
         cooldown = _integer(state.get('cooldownRemainingSeconds'), 0)
         fee = state.get('serviceFeeISK', 120000)
         stage = state.get('stage', 'idle')
@@ -144,7 +151,7 @@ class SalvageBuddyWindow(Window):
                     _color(_COLOR_MUTED, 'Wrecks and legal cargo containers are handled automatically.'),
                 )
             )
-            can_request = state.get('canRequest') is True
+            can_request = self._is_true(state.get('canRequest'))
             self._request.state = uiconst.UI_NORMAL if can_request else uiconst.UI_DISABLED
             self._request.SetLabel(
                 'Cooldown: %ss' % cooldown if cooldown > 0 else 'Summon SalvageBuddy'

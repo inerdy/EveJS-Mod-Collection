@@ -576,9 +576,10 @@ class SalvageBuddyService extends BaseService {
   }
 
   async _transferSalvageToPlayer(request, session = null) {
-    // Native drone salvage already deposits directly into the player's active
-    // ship. Do not re-scan the player's cargo and try to move it again.
-    if (!request || request.droneOnly === true || positive(request.playerShipID) <= 0) return 0;
+    // Native drone salvage normally deposits directly into the player's active
+    // ship. The explicit move is still needed during cancellation because a
+    // drone may be carrying the last cycle's salvage when Send Away is pressed.
+    if (!request || positive(request.playerShipID) <= 0) return 0;
     const sourceIDs = [
       positive(request.serviceShipID),
       ...(request.deployedDroneIDs || []).map((itemID) => positive(itemID)),
@@ -1087,6 +1088,57 @@ class SalvageBuddyService extends BaseService {
     }
   }
 
+  _sendDroneHome(scene, source, liveDrone) {
+    if (!scene || !source || !liveDrone) return false;
+    liveDrone.droneCommand = droneRuntime.DRONE_COMMAND_RETURN_HOME;
+    liveDrone.droneCombat = null;
+    liveDrone.droneMining = null;
+    liveDrone.droneSalvage = null;
+    liveDrone.droneRepair = null;
+    liveDrone.activityState = droneRuntime.STATE_DEPARTING;
+    liveDrone.targetID = source.itemID;
+    if (typeof scene.orbitShipEntity === "function") {
+      scene.orbitShipEntity(liveDrone.itemID, source.itemID, 250, {
+        broadcast: true,
+        speedFraction: 1,
+      });
+    }
+    this._persistDroneEntity(liveDrone);
+    this._emitDroneState(liveDrone);
+    return true;
+  }
+
+  async _waitForDroneReturn(request, timeoutMs) {
+    const scene = this._serviceShipScene(request);
+    const source = this._serviceShipEntity(request);
+    const deadline = Date.now() + timeoutMs;
+    if (!scene || !source) return false;
+    while (Date.now() < deadline) {
+      let pending = false;
+      for (const drone of request.deployedDrones || []) {
+        const liveDrone = scene.getEntityByID(drone.itemID);
+        if (!liveDrone) continue;
+        const cargo = itemStore.listContainerItems(null, liveDrone.itemID, CARGO_HOLD_FLAG);
+        const orbitDistance = Math.max(
+          250,
+          finite(liveDrone.droneHomeOrbitDistance, droneRuntime.resolveDroneOrbitDistance(liveDrone)),
+        );
+        const distance = this._surfaceDistance(scene, liveDrone, source);
+        if (
+          cargo.length > 0 ||
+          distance > orbitDistance + 100 ||
+          liveDrone.droneCommand === droneRuntime.DRONE_COMMAND_RETURN_HOME ||
+          liveDrone.activityState === droneRuntime.STATE_DEPARTING
+        ) {
+          pending = true;
+        }
+      }
+      if (!pending) return true;
+      await delay(this._config.pollIntervalMs);
+    }
+    return false;
+  }
+
   _surfaceDistance(scene, source, target) {
     if (scene && typeof scene.getCommandTimeEntitySurfaceDistance === "function") {
       const value = scene.getCommandTimeEntitySurfaceDistance(
@@ -1256,52 +1308,25 @@ class SalvageBuddyService extends BaseService {
     const source = this._serviceShipEntity(request);
     if (request.droneOnly === true) {
       if (scene && source) {
+        await this._transferSalvageToPlayer(request, session);
         for (const drone of request.deployedDrones || []) {
           const liveDrone = scene.getEntityByID(drone.itemID);
           if (!liveDrone) continue;
-          const cargo = itemStore.listContainerItems(null, liveDrone.itemID, CARGO_HOLD_FLAG);
-          if (cargo.length > 0) {
-            liveDrone.droneCommand = droneRuntime.DRONE_COMMAND_RETURN_HOME;
-            liveDrone.droneSalvage = null;
-            liveDrone.targetID = source.itemID;
-            scene.orbitShipEntity(liveDrone.itemID, source.itemID, 250, {
-              broadcast: true,
-              speedFraction: 1,
-            });
-          } else if (droneRuntime._testing && typeof droneRuntime._testing.resetDroneToIdle === "function") {
-            droneRuntime._testing.resetDroneToIdle(liveDrone, source, {
-              scene,
-              stopMovement: true,
-            });
-          }
+          this._sendDroneHome(scene, source, liveDrone);
         }
-        await this._waitForDroneCargo(request, 30000);
+        await this._waitForDroneReturn(request, 30000);
       }
       await this._removeServiceDrones(request);
       return;
     }
     if (scene && source) {
+      await this._transferSalvageToPlayer(request, session);
       for (const drone of request.deployedDrones || []) {
         const liveDrone = scene.getEntityByID(drone.itemID);
         if (!liveDrone) continue;
-        const cargo = itemStore.listContainerItems(null, liveDrone.itemID, CARGO_HOLD_FLAG);
-        if (cargo.length > 0) {
-          liveDrone.droneCommand = droneRuntime.DRONE_COMMAND_RETURN_HOME;
-          liveDrone.droneSalvage = null;
-          liveDrone.targetID = source.itemID;
-          scene.orbitShipEntity(liveDrone.itemID, source.itemID, 250, {
-            broadcast: true,
-            speedFraction: 1,
-          });
-        } else if (droneRuntime._testing && typeof droneRuntime._testing.resetDroneToIdle === "function") {
-          droneRuntime._testing.resetDroneToIdle(liveDrone, source, {
-            scene,
-            stopMovement: true,
-          });
-          this._persistDroneEntity(liveDrone);
-        }
+        this._sendDroneHome(scene, source, liveDrone);
       }
-      await this._waitForDroneCargo(request, 30000);
+      await this._waitForDroneReturn(request, 30000);
       await this._transferSalvageToPlayer(request, session);
     }
     if (!scene || !serviceShip.departurePoint || typeof scene.startSessionlessWarpIngress !== "function") {
@@ -1331,22 +1356,26 @@ class SalvageBuddyService extends BaseService {
     const serviceShip = request && request.serviceShip;
     const scene = this._serviceShipScene(request);
     if (!serviceShip && request && request.droneOnly !== true) return;
-    const systemID = serviceShip ? serviceShip.systemID : request.systemID;
+    const fallbackSystemID = serviceShip ? serviceShip.systemID : request.systemID;
     for (const droneID of [...new Set((request.deployedDroneIDs || []).filter(Boolean))]) {
       try {
+        const droneScene = typeof spaceRuntime.findSceneContainingDynamicEntity === "function"
+          ? spaceRuntime.findSceneContainingDynamicEntity(droneID) || scene
+          : scene;
+        const systemID = droneScene && droneScene.systemID || fallbackSystemID;
         const result = spaceRuntime.destroyDynamicInventoryEntity(
           systemID,
           droneID,
           {
-            sceneDescriptor: scene && scene.sceneDescriptor,
+            sceneDescriptor: droneScene && droneScene.sceneDescriptor,
             broadcast: true,
             actor: request.characterID,
             removeContents: true,
           },
         );
         if (!result || result.success !== true) {
-          if (scene && typeof scene.removeDynamicEntity === "function") {
-            scene.removeDynamicEntity(droneID, {
+          if (droneScene && typeof droneScene.removeDynamicEntity === "function") {
+            droneScene.removeDynamicEntity(droneID, {
               broadcast: true,
               persistSpaceState: false,
               allowSessionOwned: true,
@@ -1354,8 +1383,21 @@ class SalvageBuddyService extends BaseService {
           }
           itemStore.removeInventoryItem(droneID, {removeContents: true});
         }
+        const residualScene = typeof spaceRuntime.findSceneContainingDynamicEntity === "function"
+          ? spaceRuntime.findSceneContainingDynamicEntity(droneID)
+          : null;
+        if (residualScene && typeof residualScene.removeDynamicEntity === "function") {
+          residualScene.removeDynamicEntity(droneID, {
+            broadcast: true,
+            persistSpaceState: false,
+            allowSessionOwned: true,
+          });
+        }
+        if (itemStore.findItemById(droneID)) {
+          itemStore.removeInventoryItem(droneID, {removeContents: true});
+        }
       } catch (error) {
-        log.debug(`[${MOD_ID}] drone cleanup failed: ${error.message}`);
+        log.warn(`[${MOD_ID}] drone cleanup failed id=${droneID}: ${error.message}`);
         itemStore.removeInventoryItem(droneID, {removeContents: true});
       }
     }

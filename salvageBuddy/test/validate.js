@@ -10,7 +10,7 @@ const config = JSON.parse(fs.readFileSync(path.join(root, "config", "salvageBudd
 const normalized = require(path.join(root, "lib", "config")).normalizeConfig(config);
 
 assert.equal(manifest.id, "salvagebuddy");
-assert.equal(manifest.version, "0.2.9");
+assert.equal(manifest.version, "0.2.10");
 assert.equal(normalized.droneOnly, true);
 assert.equal(manifest.clientMenu.entrypoint, "client/menu.py");
 assert.equal(normalized.serviceFeeISK, 120000);
@@ -49,8 +49,12 @@ assert.match(service, /DRONE_LAUNCH/u);
 assert.match(service, /adjustCharacterBalanceAsync/u);
 assert.match(service, /RequestSalvage/u);
 assert.match(service, /Handle_SendAway/u);
+assert.match(service, /_sendDroneHome/u);
+assert.match(service, /_waitForDroneReturn/u);
+assert.match(service, /findSceneContainingDynamicEntity\(droneID\)/u);
 assert.match(menu, /state=uiconst\.UI_DISABLED/u);
 assert.match(menu, /_send_away_pending/u);
+assert.match(menu, /canSendAway/u);
 assert.match(menu, /Cooldown: 2 minutes/u);
 assert.match(menu, /discovered/u);
 const loader = fs.readFileSync(path.join(root, "loader.js"), "utf8");
