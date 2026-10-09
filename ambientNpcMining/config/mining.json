@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "tickIntervalMs": 300000,
   "initialDelayMs": 30000,
   "spawnChance": 0.15,
