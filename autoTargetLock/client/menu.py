@@ -289,6 +289,40 @@ def _is_non_combat_target(slim):
     return False
 
 
+def _is_owned_by_player(slim):
+    character_id = _positive_int(getattr(session, 'charid', None))
+    ship_id = _positive_int(getattr(session, 'shipid', None))
+    for name in ('ownerID', 'ownerId', 'controllerID', 'controllerId'):
+        owner_id = _positive_int(getattr(slim, name, None))
+        if owner_id is not None and owner_id in (character_id, ship_id):
+            return True
+    return False
+
+
+def _owned_drone_ids():
+    result = set()
+    character_id = _positive_int(getattr(session, 'charid', None))
+    ship_id = _positive_int(getattr(session, 'shipid', None))
+    try:
+        drones = sm.GetService('michelle').GetDrones()
+        entries = drones.items() if isinstance(drones, dict) else ((None, drone) for drone in drones)
+        for drone_key, drone in entries:
+            owner_id = _positive_int(getattr(drone, 'ownerID', None))
+            controller_id = _positive_int(getattr(drone, 'controllerID', None))
+            if owner_id != character_id and controller_id != ship_id:
+                continue
+            drone_id = _positive_int(getattr(drone, 'droneID', None))
+            if drone_id is None:
+                drone_id = _positive_int(getattr(drone, 'itemID', None))
+            if drone_id is None:
+                drone_id = _positive_int(drone_key)
+            if drone_id is not None:
+                result.add(drone_id)
+    except Exception:
+        pass
+    return result
+
+
 def _is_npc(slim):
     # Some client target/overview records expose an isNPC field with the
     # default value False even for native NPCs.  Treat that as a hint only;
@@ -455,10 +489,18 @@ class AutoTargetLockWindow(Window):
         available_slots = _available_target_slots(target_service, len(locked), len(locking))
         if available_slots <= 0:
             return []
+        owned_drone_ids = _owned_drone_ids()
         candidates = []
         for item_id, slim in getattr(ballpark, 'slimItems', {}).items():
             item_id = _positive_int(item_id)
-            if item_id is None or item_id == own_ship_id or item_id in locked or item_id in locking:
+            if (
+                item_id is None
+                or item_id == own_ship_id
+                or item_id in locked
+                or item_id in locking
+                or item_id in owned_drone_ids
+                or _is_owned_by_player(slim)
+            ):
                 continue
             if _is_non_combat_target(slim) or _is_structure(slim) or not _is_npc(slim) or not _is_hostile(ballpark, target_service, item_id, slim):
                 continue
