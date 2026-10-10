@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 3,
+  "id": "autotargetlock",
+  "displayName": "Auto Target Lock",
+  "version": "0.1.0",
+  "description": "Automatically locks hostile NPC combatants within the player's live targeting range.",
+  "kind": "loader",
+  "supportedBackends": [
+    "native"
+  ],
+  "activation": {
+    "strategy": "loader_rename"
+  },
+  "restart": "game_server",
+  "compatibility": {
+    "evejsVersions": [
+      "0.12.9"
+    ]
+  },
+  "clientMenu": {
+    "apiVersion": 1,
+    "entrypoint": "client/menu.py"
+  }
+}
