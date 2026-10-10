@@ -2,12 +2,8 @@
 """Auto Target Lock shared Mods-menu entrypoint for EVE Python 2.7."""
 
 import blue
-import cfg
 import const
 import evejs_mod_menu as mods
-import session
-import sm
-import state
 import uthread
 
 from carbonui import uiconst
@@ -184,7 +180,8 @@ def _is_npc(slim):
         if owner_id is None:
             continue
         try:
-            owner = cfg.eveowners.Get(owner_id)
+            cfg_module = __import__('cfg')
+            owner = cfg_module.eveowners.Get(owner_id)
             member = getattr(owner, 'IsNPC', None)
             if member is not None:
                 return bool(member() if callable(member) else member)
@@ -199,12 +196,13 @@ def _is_hostile(ballpark, target_service, item_id, slim):
         return result
 
     try:
+        state_module = __import__('state')
         state_service = sm.GetService('state')
         check_state = getattr(state_service, 'CheckState', None)
         if callable(check_state):
             checked = False
             for state_name in ('threat', 'aggressor'):
-                state_id = getattr(state, state_name, None)
+                state_id = getattr(state_module, state_name, None)
                 if state_id is None:
                     continue
                 checked = True
