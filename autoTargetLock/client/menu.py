@@ -207,6 +207,12 @@ def _is_npc(slim):
         if owner_id is None:
             continue
         try:
+            id_checkers = __import__('eve.common.script.sys.idCheckers', fromlist=['IsNPC'])
+            if id_checkers.IsNPC(owner_id):
+                return True
+        except Exception:
+            pass
+        try:
             cfg_module = __import__('cfg')
             owner = cfg_module.eveowners.Get(owner_id)
             member = getattr(owner, 'IsNPC', None)
@@ -242,15 +248,16 @@ def _is_hostile(ballpark, target_service, item_id, slim):
         return False
 
     try:
-        state_module = __import__('state')
-        state_service = sm.GetService('state')
-        check_state = getattr(state_service, 'CheckState', None)
-        if callable(check_state):
-            for state_name in ('threat', 'aggressor'):
+        state_module = __import__(
+            'eve.client.script.parklife.states',
+            fromlist=['threatTargetsMe', 'threatAttackingMe'],
+        )
+        state_service = sm.GetService('stateSvc')
+        get_state = getattr(state_service, 'GetState', None)
+        if callable(get_state):
+            for state_name in ('threatTargetsMe', 'threatAttackingMe'):
                 state_id = getattr(state_module, state_name, None)
-                if state_id is None:
-                    continue
-                if check_state(item_id, state_id):
+                if state_id is not None and get_state(item_id, state_id):
                     return True
     except Exception:
         pass
