@@ -42,6 +42,22 @@ def _read_bool(value, names):
     return None
 
 
+def _read_text(value, names):
+    for name in names:
+        if not hasattr(value, name):
+            continue
+        candidate = getattr(value, name)
+        try:
+            candidate = candidate() if callable(candidate) else candidate
+        except Exception:
+            continue
+        if candidate is not None:
+            candidate = str(candidate).strip().lower()
+            if candidate:
+                return candidate
+    return None
+
+
 def _as_item_id(value):
     if isinstance(value, (tuple, list)) and value:
         value = value[0]
@@ -171,11 +187,22 @@ def _distance(ballpark, source_id, target_id, target_ball=None):
 
 
 def _is_npc(slim):
-    result = _read_bool(slim, ('isNPC', 'isNpc', 'npc'))
-    if result is not None:
-        return result
+    # Some client target/overview records expose an isNPC field with the
+    # default value False even for native NPCs.  Treat that as a hint only;
+    # keep checking the native NPC marker/type and owner below.
+    for name in ('isNPC', 'isNpc', 'npc', 'nativeNpc'):
+        result = _read_bool(slim, (name,))
+        if result is True:
+            return True
 
-    for owner_name in ('ownerID', 'ownerId', 'charID', 'charId'):
+    entity_type = _read_text(
+        slim,
+        ('npcEntityType', 'entityType', 'npcType', 'npc_class'),
+    )
+    if entity_type in ('npc', 'pirate', 'drifter', 'concord', 'police', 'customs', 'rat'):
+        return True
+
+    for owner_name in ('ownerID', 'ownerId', 'corpID', 'corporationID', 'charID', 'charId'):
         owner_id = _positive_int(getattr(slim, owner_name, None))
         if owner_id is None:
             continue
@@ -191,25 +218,40 @@ def _is_npc(slim):
 
 
 def _is_hostile(ballpark, target_service, item_id, slim):
-    result = _read_bool(slim, ('isHostile', 'hostile', 'isAggressive', 'aggressive'))
-    if result is not None:
-        return result
+    # A false isHostile value is not authoritative here.  EveJS native NPC
+    # slim records do not carry the browser-only npcEntityType field, and the
+    # client can expose a default false flag before the overview/state service
+    # has classified the entity.  Only positive friendly signals should stop
+    # the fallback checks.
+    result = _read_bool(
+        slim,
+        ('isHostile', 'hostile', 'isAggressive', 'aggressive', 'threat'),
+    )
+    if result is True:
+        return True
+
+    friendly = _read_bool(slim, ('isFriendly', 'friendly', 'isNeutral', 'neutral'))
+    if friendly is True:
+        return False
+
+    entity_type = _read_text(
+        slim,
+        ('npcEntityType', 'entityType', 'npcType', 'npc_class'),
+    )
+    if entity_type in ('concord', 'police', 'customs', 'friendly', 'neutral', 'player'):
+        return False
 
     try:
         state_module = __import__('state')
         state_service = sm.GetService('state')
         check_state = getattr(state_service, 'CheckState', None)
         if callable(check_state):
-            checked = False
             for state_name in ('threat', 'aggressor'):
                 state_id = getattr(state_module, state_name, None)
                 if state_id is None:
                     continue
-                checked = True
                 if check_state(item_id, state_id):
                     return True
-            if checked:
-                return False
     except Exception:
         pass
 
@@ -222,9 +264,14 @@ def _is_hostile(ballpark, target_service, item_id, slim):
                 result = member(item_id)
             except Exception:
                 continue
-            if result is not None:
-                return bool(result)
-    return False
+            if result is True:
+                return True
+
+    # Native NPCs are represented to the client primarily by their NPC owner
+    # corporation.  The overview can already show them as hostile even when
+    # the threat state has not been populated yet, so an NPC that has not
+    # produced a positive friendly signal is a valid combat target fallback.
+    return _is_npc(slim)
 
 
 def _is_structure(slim):
