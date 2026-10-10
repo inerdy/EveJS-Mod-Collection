@@ -108,6 +108,26 @@ function quantityForItem(item, config, overrides = {}) {
   );
 }
 
+function resourceOrderOverrides(item, config, overrides = {}) {
+  const resourceLiquidity = config && config.resourceLiquidity;
+  const resourceTypeIDs = resourceLiquidity && Array.isArray(resourceLiquidity.typeIDs)
+    ? resourceLiquidity.typeIDs
+    : [];
+  if (
+    !resourceLiquidity ||
+    resourceLiquidity.enabled === false ||
+    !resourceTypeIDs.includes(positive(item && item.typeID))
+  ) {
+    return {...overrides};
+  }
+  return {
+    ...overrides,
+    targetOrderVolumeM3: resourceLiquidity.targetOrderVolumeM3,
+    maximumOrderQuantity: resourceLiquidity.maximumOrderQuantity,
+    replaceIfQuantityBelow: true,
+  };
+}
+
 function orderSource(stationID, typeID, side, slot) {
   return `${SOURCE}:${stationID}:${typeID}:${side}:${slot}`;
 }
@@ -127,6 +147,7 @@ class NpcMarketLiquidityService extends BaseService {
     this._tickInProgress = false;
     this._items = null;
     this._oreItems = null;
+    this._resourceItems = null;
     this._priceManifest = null;
     this._daemonCapabilityVerified = false;
     this._daemonStartedAt = "";
@@ -248,6 +269,17 @@ class NpcMarketLiquidityService extends BaseService {
         .sort((left, right) => positive(left.typeID) - positive(right.typeID));
     }
     return this._oreItems;
+  }
+
+  _listResourceItems() {
+    if (!this._resourceItems) {
+      const resourceTypeIDs = new Set(this._config.resourceLiquidity.typeIDs.map(Number));
+      this._resourceItems = listItemTypes()
+        .filter(eligibleItem)
+        .filter((item) => resourceTypeIDs.has(positive(item.typeID)))
+        .sort((left, right) => positive(left.typeID) - positive(right.typeID));
+    }
+    return this._resourceItems;
   }
 
   _fuelSeedItem(typeID) {
@@ -421,10 +453,11 @@ class NpcMarketLiquidityService extends BaseService {
   }
 
   async _placeOrder(station, item, side, slot, reference, existing, overrides = {}) {
+    const orderOverrides = resourceOrderOverrides(item, this._config, overrides);
     const tiers = side === "buy" ? this._config.buyTiers : this._config.sellTiers;
     const tier = chooseTier(tiers, `${station.stationID}:${item.typeID}:${side}:${slot}`);
     const price = buildPrice(side, tier, reference, this._config.minimumSpreadRatio);
-    const quantity = quantityForItem(item, this._config, overrides);
+    const quantity = quantityForItem(item, this._config, orderOverrides);
     const current = existing
       .filter((order) => (
         String(order.state || "open").toLowerCase() === "open" &&
@@ -442,7 +475,7 @@ class NpcMarketLiquidityService extends BaseService {
       const remainingQuantity = quantityField
         ? positive(current[quantityField], 0)
         : 0;
-      const needsQuantityRefresh = overrides.replaceIfQuantityBelow === true &&
+      const needsQuantityRefresh = orderOverrides.replaceIfQuantityBelow === true &&
         Boolean(quantityField) && remainingQuantity < quantity;
       if (
         !needsQuantityRefresh &&
@@ -564,7 +597,7 @@ class NpcMarketLiquidityService extends BaseService {
       }
     }
     log.info(
-      `[${MOD_ID}] hub=${station.stationID} mode=${priorityPass ? "ore-buy" : "standard"} ` +
+      `[${MOD_ID}] hub=${station.stationID} mode=${overrides.mode || (priorityPass ? "ore-buy" : "standard")} ` +
       `processed=${selected.length} created=${created} ` +
       `replaced=${replaced} skipped=${skipped} manifestFallback=${manifestFallback} ` +
       `calculatedFallback=${calculatedFallback} at=${nowMs}`,
@@ -642,6 +675,30 @@ class NpcMarketLiquidityService extends BaseService {
       const existing = await this._listExistingOrders();
       for (const stationID of this._config.hubStationIDs) {
         const station = this._loadHub(stationID);
+        if (!oreOnly && this._config.resourceLiquidity.enabled) {
+          const resourceResult = await this._processHub(
+            station,
+            this._listResourceItems(),
+            existing,
+            nowMs,
+            {
+              mode: "resource",
+              priority: true,
+              ordersPerItem: this._config.ordersPerSide,
+              replaceIfQuantityBelow: true,
+            },
+          );
+          hubs.push(resourceResult);
+          totals.created += resourceResult.created;
+          totals.replaced += resourceResult.replaced;
+          totals.skipped += resourceResult.skipped;
+          totals.failed += resourceResult.failed;
+          totals.manifestFallback += resourceResult.manifestFallback;
+          totals.calculatedFallback += resourceResult.calculatedFallback;
+          totals.seedCreated += resourceResult.fuelSeed.created;
+          totals.seedSkipped += resourceResult.fuelSeed.skipped;
+          totals.seedFailed += resourceResult.fuelSeed.failed;
+        }
         const result = await this._processHub(
           station,
           items,
@@ -689,6 +746,7 @@ module.exports._testing = {
   eligibleItem,
   quantityForItem,
   orderSource,
+  resourceOrderOverrides,
   registerManagedOrderID,
   rewriteLegacyOrderSources,
 };

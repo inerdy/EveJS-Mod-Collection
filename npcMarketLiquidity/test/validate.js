@@ -16,6 +16,9 @@ assert.equal(config.oreLiquidity.enabled, true);
 assert.equal(config.oreLiquidity.tickIntervalMs, 900000);
 assert.equal(config.oreLiquidity.ordersPerItem, 5);
 assert.equal(config.oreLiquidity.typeIDs.length, 16);
+assert.equal(config.resourceLiquidity.enabled, true);
+assert.equal(config.resourceLiquidity.targetOrderVolumeM3, 250000);
+assert.equal(config.resourceLiquidity.typeIDs.includes(16265), true);
 assert.equal(config.fuelSeeds.length, 4);
 assert.deepEqual(config.fuelSeeds.map((seed) => seed.typeID), [17889, 16274, 17888, 17887]);
 assert.equal(config.hubFuelSeed.typeID, 17887);
@@ -38,6 +41,23 @@ assert.equal(service._testing.quantityForItem({volume: 0.01}, config), 500000);
 assert.equal(
   service._testing.quantityForItem({volume: 0.1}, config, config.oreLiquidity),
   250000,
+);
+assert.equal(
+  service._testing.quantityForItem({volume: 1000}, config, config.resourceLiquidity),
+  250,
+);
+assert.deepEqual(
+  service._testing.resourceOrderOverrides({typeID: 16265}, config, {buyOnly: true}),
+  {
+    buyOnly: true,
+    targetOrderVolumeM3: 250000,
+    maximumOrderQuantity: 5000000,
+    replaceIfQuantityBelow: true,
+  },
+);
+assert.deepEqual(
+  service._testing.resourceOrderOverrides({typeID: 34}, config, {buyOnly: true}),
+  {buyOnly: true},
 );
 assert.equal(service._testing.orderSource(60003760, 34, "buy", 0), "npc-passive:60003760:34:buy:0");
 

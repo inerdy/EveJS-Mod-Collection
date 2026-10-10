@@ -54,6 +54,10 @@ stopped, then restart the Game server.
 - `oreLiquidity`: dedicated raw-ore buy-order settings. By default, the mod
   checks the standard ore types every 15 minutes and maintains five larger buy
   orders per ore at each configured hub.
+- `resourceLiquidity`: larger quantity settings for configured ores, ice, and
+  compressed ice types. The default 250,000 m³ target makes a White Glaze order
+  250 units instead of 5. It applies to both normal buy and sell orders and
+  refreshes smaller managed resource orders when they are encountered.
 - `itemsPerHubPerTick`: limits how many eligible item types each hub processes
   per pass. The cursor is saved, so coverage continues after a restart.
 - `ordersPerSide`: number of simultaneous buy and sell slots per item at each
@@ -65,6 +69,11 @@ stopped, then restart the Game server.
   `oreLiquidity.targetOrderVolumeM3`, `oreLiquidity.maximumOrderQuantity`, and
   `oreLiquidity.typeIDs` control the faster ore-buy pass. It only creates buy
   orders and does not change the normal market pass for other items.
+- `resourceLiquidity.targetOrderVolumeM3`,
+  `resourceLiquidity.maximumOrderQuantity`, and `resourceLiquidity.typeIDs`
+  control the larger resource order sizing overlay. Resource settings take
+  precedence over the normal target and the faster ore-buy target for matching
+  type IDs.
 - `staleAfterMs`: how long an order can remain open before the next pass may
   replace it using a new market reference.
 - `minimumSpreadRatio`: prevents generated orders from crossing the current

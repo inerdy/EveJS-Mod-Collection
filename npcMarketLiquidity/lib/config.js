@@ -13,6 +13,16 @@ const DEFAULT_ORE_TYPE_IDS = Object.freeze([
   1223, 1224, 1225, 1226, 1227, 1228, 1229, 1230, 1231, 1232,
   11396,
 ]);
+const DEFAULT_ICE_TYPE_IDS = Object.freeze([
+  16262, 16263, 16264, 16265, 16266, 16267, 16268, 16269,
+  17975, 17976, 17977, 17978,
+  28433, 28434, 28435, 28436, 28437, 28438, 28439, 28440, 28441, 28442, 28443, 28444,
+  28627, 28628,
+]);
+const DEFAULT_RESOURCE_TYPE_IDS = Object.freeze([
+  ...DEFAULT_ORE_TYPE_IDS,
+  ...DEFAULT_ICE_TYPE_IDS,
+]);
 const DEFAULT_BUY_TIERS = [
   {id: "poor", multiplier: 0.55, weight: 20},
   {id: "fair", multiplier: 0.8, weight: 55},
@@ -70,6 +80,12 @@ const DEFAULT_ORE_LIQUIDITY = Object.freeze({
   maximumOrderQuantity: 5000000,
   typeIDs: DEFAULT_ORE_TYPE_IDS,
 });
+const DEFAULT_RESOURCE_LIQUIDITY = Object.freeze({
+  enabled: true,
+  targetOrderVolumeM3: 250000,
+  maximumOrderQuantity: 5000000,
+  typeIDs: DEFAULT_RESOURCE_TYPE_IDS,
+});
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
@@ -91,6 +107,7 @@ const DEFAULT_CONFIG = Object.freeze({
   fuelSeeds: DEFAULT_FUEL_SEEDS,
   hubFuelSeed: DEFAULT_HUB_FUEL_SEED,
   oreLiquidity: DEFAULT_ORE_LIQUIDITY,
+  resourceLiquidity: DEFAULT_RESOURCE_LIQUIDITY,
   discordWebhookUrl: "",
   discordNotifyWhenEmpty: false,
   hubStationIDs: DEFAULT_HUBS,
@@ -185,6 +202,24 @@ function normalizeOreLiquidity(value) {
   };
 }
 
+function normalizeResourceLiquidity(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    enabled: source.enabled !== false,
+    targetOrderVolumeM3: Math.max(
+      0.01,
+      number(source.targetOrderVolumeM3, DEFAULT_RESOURCE_LIQUIDITY.targetOrderVolumeM3),
+    ),
+    maximumOrderQuantity: integer(
+      source.maximumOrderQuantity,
+      DEFAULT_RESOURCE_LIQUIDITY.maximumOrderQuantity,
+      1,
+      1000000000,
+    ),
+    typeIDs: positiveIDs(source.typeIDs, DEFAULT_RESOURCE_TYPE_IDS),
+  };
+}
+
 function resolveConfiguredPath(value, fallback) {
   const configured = String(value || "").trim();
   if (!configured) return fallback;
@@ -216,6 +251,7 @@ function normalizeConfig(value = {}) {
       DEFAULT_HUB_FUEL_SEED,
     ),
     oreLiquidity: normalizeOreLiquidity(source.oreLiquidity),
+    resourceLiquidity: normalizeResourceLiquidity(source.resourceLiquidity),
     discordWebhookUrl: String(source.discordWebhookUrl || "").trim(),
     discordNotifyWhenEmpty: source.discordNotifyWhenEmpty === true,
     hubStationIDs: positiveIDs(source.hubStationIDs, DEFAULT_HUBS),
@@ -243,12 +279,16 @@ function loadConfig(configPath = CONFIG_PATH) {
 module.exports = {
   CONFIG_PATH,
   DEFAULT_CONFIG,
+  DEFAULT_ICE_TYPE_IDS,
   DEFAULT_FUEL_SEEDS,
   DEFAULT_ORE_LIQUIDITY,
   DEFAULT_ORE_TYPE_IDS,
+  DEFAULT_RESOURCE_LIQUIDITY,
+  DEFAULT_RESOURCE_TYPE_IDS,
   DEFAULT_PRICE_MANIFEST_PATH,
   LOCAL_CONFIG_PATH,
   loadConfig,
   normalizeConfig,
   normalizeOreLiquidity,
+  normalizeResourceLiquidity,
 };
