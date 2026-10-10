@@ -28,6 +28,14 @@ def _positive_int(value):
     return value if value > 0 else None
 
 
+def _nonnegative_int(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
 def _read_bool(value, names):
     for name in names:
         if not hasattr(value, name):
@@ -118,7 +126,58 @@ def _target_slots(target_service):
             result = None
         if result is not None:
             return result
+
+    try:
+        godma = sm.GetService('godma')
+        ship_item = godma.GetItem(session.shipid)
+        result = _positive_int(getattr(ship_item, 'maxLockedTargets', None))
+        if result is not None:
+            return result
+    except Exception:
+        pass
+
     return MAX_TARGETS_FALLBACK
+
+
+def _available_target_slots(target_service, locked_count, locking_count):
+    # TargetMgr exposes the actual remaining capacity.  It does not include
+    # locks that are still pending, so remove those separately before issuing
+    # another request.  This prevents repeated requests when the lock queue is
+    # slower than this mod's scan interval.
+    member = getattr(target_service, 'GetNumAdditionalTargetsAllowed', None)
+    if callable(member):
+        try:
+            result = _nonnegative_int(member())
+        except Exception:
+            result = None
+        if result is not None:
+            return max(0, result - locking_count)
+
+    return max(0, _target_slots(target_service) - locked_count - locking_count)
+
+
+def _is_in_warp(ballpark, own_ship_id):
+    # This is the native client check used by the movement service.  Keep the
+    # ball-mode fallback for client builds that do not expose InWarp().
+    try:
+        michelle = sm.GetService('michelle')
+        for name in ('InWarp', 'IsPreparingWarp'):
+            member = getattr(michelle, name, None)
+            if callable(member) and member():
+                return True
+    except Exception:
+        pass
+
+    try:
+        destiny = __import__('destiny')
+        warp_mode = getattr(destiny, 'DSTBALL_WARP', None)
+        if warp_mode is not None:
+            ball = ballpark.GetBall(own_ship_id)
+            return ball is not None and getattr(ball, 'mode', None) == warp_mode
+    except Exception:
+        pass
+
+    return False
 
 
 def _max_targeting_range(target_service):
@@ -349,7 +408,7 @@ class AutoTargetLockWindow(Window):
             return []
         locked = _locked_ids(target_service)
         locking = _locking_ids(target_service)
-        available_slots = max(0, _target_slots(target_service) - len(locked) - len(locking))
+        available_slots = _available_target_slots(target_service, len(locked), len(locking))
         if available_slots <= 0:
             return []
         candidates = []
@@ -374,17 +433,26 @@ class AutoTargetLockWindow(Window):
         try:
             target_service = sm.GetService('target')
             ballpark = sm.GetService('michelle').GetBallpark()
+            own_ship_id = _positive_int(getattr(session, 'shipid', None))
+            if own_ship_id is not None and _is_in_warp(ballpark, own_ship_id):
+                locked_count = len(_locked_ids(target_service))
+                self._set_details('Targeting paused while warping. | Locked: %d' % locked_count)
+                return
+            locked_count = len(_locked_ids(target_service))
+            locking_count = len(_locking_ids(target_service))
+            if _available_target_slots(target_service, locked_count, locking_count) <= 0:
+                self._set_details('Targeting paused: target slots full. | Locked: %d | Locking: %d' % (locked_count, locking_count))
+                return
             max_range = _max_targeting_range(target_service)
             candidates = self._candidate_targets(ballpark, target_service, max_range)
-            locked_count = len(_locked_ids(target_service))
             if not candidates:
-                self._set_details('Target range: %.0f m | Locked: %d | No hostile NPCs in range.' % (max_range, locked_count))
+                self._set_details('Target range: %.0f m | Locked: %d | Locking: %d | No hostile NPCs in range.' % (max_range, locked_count, locking_count))
                 return
             locked = 0
             for distance, item_id in candidates:
                 if _request_lock(target_service, item_id):
                     locked += 1
-            self._set_details('Target range: %.0f m | Locked: %d | Lock requests: %d' % (max_range, locked_count, locked))
+            self._set_details('Target range: %.0f m | Locked: %d | Locking: %d | Lock requests: %d' % (max_range, locked_count, locking_count, locked))
         except Exception as error:
             self._set_details('Target scan unavailable: %s' % error)
 
