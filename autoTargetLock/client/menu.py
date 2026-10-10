@@ -245,6 +245,50 @@ def _distance(ballpark, source_id, target_id, target_ball=None):
         return None
 
 
+def _is_non_combat_target(slim):
+    # Wrecks and containers can retain an NPC owner, so ownership alone must
+    # not make them eligible for the hostile-NPC fallback.
+    for name in (
+        'isWreck',
+        'wreck',
+        'isCargoContainer',
+        'cargoContainer',
+        'isContainer',
+        'lootContainer',
+    ):
+        if _read_bool(slim, (name,)) is True:
+            return True
+
+    group_id = getattr(slim, 'groupID', None)
+    if group_id is not None:
+        try:
+            if group_id in getattr(const, 'containerGroupIDs', ()):
+                return True
+        except Exception:
+            pass
+
+        for name in (
+            'groupWreck',
+            'groupCargoContainer',
+            'groupSpawnContainer',
+            'groupSecureCargoContainer',
+            'groupAuditLogSecureContainer',
+            'groupFreightContainer',
+            'groupMissionContainer',
+        ):
+            if group_id == getattr(const, name, None):
+                return True
+
+    type_text = _read_text(slim, ('groupName', 'categoryName', 'typeName'))
+    if type_text and any(
+        token in type_text
+        for token in ('wreck', 'cargo container', 'secure container', 'freight container', 'mission container')
+    ):
+        return True
+
+    return False
+
+
 def _is_npc(slim):
     # Some client target/overview records expose an isNPC field with the
     # default value False even for native NPCs.  Treat that as a hint only;
@@ -416,7 +460,7 @@ class AutoTargetLockWindow(Window):
             item_id = _positive_int(item_id)
             if item_id is None or item_id == own_ship_id or item_id in locked or item_id in locking:
                 continue
-            if _is_structure(slim) or not _is_npc(slim) or not _is_hostile(ballpark, target_service, item_id, slim):
+            if _is_non_combat_target(slim) or _is_structure(slim) or not _is_npc(slim) or not _is_hostile(ballpark, target_service, item_id, slim):
                 continue
             try:
                 target_ball = ballpark.GetBall(item_id)
