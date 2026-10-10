@@ -321,7 +321,7 @@ class AutoTargetLockWindow(Window):
             target_service = sm.GetService('target')
             ballpark = sm.GetService('michelle').GetBallpark()
             max_range = _max_targeting_range(target_service)
-            candidates = _candidate_targets(ballpark, target_service, max_range)
+            candidates = self._candidate_targets(ballpark, target_service, max_range)
             locked_count = len(_locked_ids(target_service))
             if not candidates:
                 self._set_details('Target range: %.0f m | Locked: %d | No hostile NPCs in range.' % (max_range, locked_count))
