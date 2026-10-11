@@ -786,6 +786,32 @@ class SalvageBuddyService extends BaseService {
     }
   }
 
+  _clearDroneClientState(droneEntity, session) {
+    if (
+      !droneEntity ||
+      !session ||
+      typeof session.sendNotification !== "function" ||
+      typeof droneRuntime.buildDroneStateNotificationTuple !== "function"
+    ) {
+      return false;
+    }
+    try {
+      const payload = droneRuntime.buildDroneStateNotificationTuple(droneEntity, {
+        ownerID: null,
+        controllerID: null,
+        activityState: null,
+        typeID: null,
+        controllerOwnerID: null,
+        targetID: null,
+      });
+      session.sendNotification("OnDroneStateChange", "charid", payload);
+      return true;
+    } catch (error) {
+      log.debug(`[${MOD_ID}] drone state cleanup notification failed: ${error.message}`);
+      return false;
+    }
+  }
+
   async _deployServiceDrones(request) {
     const scene = this._serviceShipScene(request);
     const source = this._serviceShipEntity(request);
@@ -1316,7 +1342,7 @@ class SalvageBuddyService extends BaseService {
         }
         await this._waitForDroneReturn(request, 30000);
       }
-      await this._removeServiceDrones(request);
+      await this._removeServiceDrones(request, session);
       return;
     }
     if (scene && source) {
@@ -1352,7 +1378,7 @@ class SalvageBuddyService extends BaseService {
     await this._removeServiceShip(request, session);
   }
 
-  async _removeServiceDrones(request) {
+  async _removeServiceDrones(request, session = null) {
     const serviceShip = request && request.serviceShip;
     const scene = this._serviceShipScene(request);
     if (!serviceShip && request && request.droneOnly !== true) return;
@@ -1362,6 +1388,12 @@ class SalvageBuddyService extends BaseService {
         const droneScene = typeof spaceRuntime.findSceneContainingDynamicEntity === "function"
           ? spaceRuntime.findSceneContainingDynamicEntity(droneID) || scene
           : scene;
+        const liveDrone = droneScene && typeof droneScene.getEntityByID === "function"
+          ? droneScene.getEntityByID(droneID)
+          : null;
+        const clientDrone = liveDrone ||
+          (request.deployedDrones || []).find((drone) => positive(drone && drone.itemID) === positive(droneID));
+        this._clearDroneClientState(clientDrone, session);
         const systemID = droneScene && droneScene.systemID || fallbackSystemID;
         const result = spaceRuntime.destroyDynamicInventoryEntity(
           systemID,
@@ -1409,14 +1441,14 @@ class SalvageBuddyService extends BaseService {
     const serviceShip = request && request.serviceShip;
     if (request && request.droneOnly === true) {
       await this._waitForDroneCargo(request, 5000);
-      await this._removeServiceDrones(request);
+      await this._removeServiceDrones(request, session);
       return true;
     }
     if (!serviceShip) return true;
     const scene = this._serviceShipScene(request);
     await this._waitForDroneCargo(request, 5000);
     await this._transferSalvageToPlayer(request, session);
-    await this._removeServiceDrones(request);
+    await this._removeServiceDrones(request, session);
     let removed = false;
     let removedFromScene = false;
     try {
