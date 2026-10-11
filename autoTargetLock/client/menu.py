@@ -8,6 +8,7 @@ import uthread
 
 from carbonui import uiconst
 from carbonui.control.button import Button
+from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
 from carbonui.primitives.container import Container
 from eve.client.script.ui.control.eveLabel import EveLabelMedium
@@ -16,6 +17,19 @@ from eve.client.script.ui.control.eveLabel import EveLabelMedium
 SCAN_INTERVAL_MS = 500
 TARGETING_MARGIN = 0.98
 MAX_TARGETS_FALLBACK = 8
+MAX_DISPLAY_TARGETS = 24
+
+WEAKNESS_PROFILES = (
+    ('angel cartel', 'Explosive / Kinetic'),
+    ('angel', 'Explosive / Kinetic'),
+    ('blood raider', 'EM / Thermal'),
+    ('blood', 'EM / Thermal'),
+    ('guristas', 'Kinetic / Thermal'),
+    ('serpentis', 'Kinetic / Thermal'),
+    ('sansha', 'EM / Thermal'),
+    ('rogue drone', 'Explosive / Thermal'),
+    ('rogue', 'Explosive / Thermal'),
+)
 
 _window = None
 
@@ -64,6 +78,110 @@ def _read_text(value, names):
             if candidate:
                 return candidate
     return None
+
+
+def _read_display_text(value, names):
+    for name in names:
+        if not hasattr(value, name):
+            continue
+        candidate = getattr(value, name)
+        try:
+            candidate = candidate() if callable(candidate) else candidate
+        except Exception:
+            continue
+        if candidate is None:
+            continue
+        if isinstance(candidate, (list, tuple, set)):
+            candidate = ' / '.join([str(part).strip() for part in candidate if str(part).strip()])
+        else:
+            candidate = str(candidate).strip()
+        if candidate:
+            return candidate
+    return None
+
+
+def _config_record(collection_name, item_id):
+    item_id = _positive_int(item_id)
+    if item_id is None:
+        return None
+    try:
+        cfg_module = __import__('cfg')
+        collection = getattr(cfg_module, collection_name, None)
+        getter = getattr(collection, 'Get', None)
+        return getter(item_id) if callable(getter) else None
+    except Exception:
+        return None
+
+
+def _target_type_id(slim):
+    for name in ('typeID', 'typeId', 'shipTypeID', 'shipTypeId'):
+        type_id = _positive_int(getattr(slim, name, None))
+        if type_id is not None:
+            return type_id
+    return None
+
+
+def _target_type_name(slim):
+    type_id = _target_type_id(slim)
+    type_record = _config_record('invtypes', type_id)
+    return (
+        _read_display_text(slim, ('typeName', 'shipTypeName')) or
+        _read_display_text(type_record, ('name', 'typeName')) or
+        ('Type %s' % type_id if type_id is not None else 'Unknown type')
+    )
+
+
+def _target_name(slim, target_ball, type_name):
+    return (
+        _read_display_text(slim, ('name', 'displayName', 'itemName', 'slimName')) or
+        _read_display_text(target_ball, ('name', 'displayName', 'itemName')) or
+        type_name
+    )
+
+
+def _target_faction_name(slim):
+    direct_name = _read_display_text(
+        slim,
+        ('factionName', 'npcFaction', 'corporationName', 'corpName', 'ownerName'),
+    )
+    if direct_name:
+        return direct_name
+
+    faction_id = _positive_int(getattr(slim, 'factionID', None))
+    faction_record = _config_record('factions', faction_id)
+    faction_name = _read_display_text(faction_record, ('name', 'factionName'))
+    if faction_name:
+        return faction_name
+
+    for name in ('ownerID', 'ownerId', 'corpID', 'corporationID'):
+        owner_id = _positive_int(getattr(slim, name, None))
+        owner_record = _config_record('eveowners', owner_id)
+        owner_name = _read_display_text(owner_record, ('name', 'ownerName'))
+        if owner_name:
+            return owner_name
+    return 'Unknown faction'
+
+
+def _target_weakness(slim, faction_name, type_name):
+    direct_weakness = _read_display_text(
+        slim,
+        ('weakness', 'weaknesses', 'damageWeakness', 'recommendedDamage', 'preferredDamageType'),
+    )
+    if direct_weakness:
+        return direct_weakness
+
+    search_text = '%s %s' % (faction_name, type_name)
+    search_text = search_text.lower()
+    for profile_name, weakness in WEAKNESS_PROFILES:
+        if profile_name in search_text:
+            return weakness
+    return 'Unknown'
+
+
+def _format_distance(distance):
+    if distance >= 1000.0:
+        return '%.1f km' % (distance / 1000.0)
+    return '%.0f m' % distance
 
 
 def _as_item_id(value):
@@ -440,24 +558,64 @@ def _request_lock(target_service, item_id):
 class AutoTargetLockWindow(Window):
     default_windowID = 'AutoTargetLockWindow'
     default_caption = 'Auto Target Lock'
-    default_width = 430
-    default_height = 285
+    default_width = 620
+    default_height = 460
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
         Window.ApplyAttributes(self, attributes)
         self._enabled = False
         self._generation = 0
-        self._status = EveLabelMedium(parent=self.content, align=uiconst.TOTOP,
-                                      text='Auto Target Lock is disabled.')
-        self._details = EveLabelMedium(parent=self.content, align=uiconst.TOTOP,
-                                       text='Hostile NPCs only. Existing locks are never removed.')
-        self._toggle_button = Button(parent=self.content, align=uiconst.TOTOP,
-                                     label='Enable Auto Target Lock', func=self._toggle,
-                                     top=18, height=32)
-        Container(parent=self.content, align=uiconst.TOTOP, height=12)
-        EveLabelMedium(parent=self.content, align=uiconst.TOTOP,
-                       text='Uses your current targeting range and available target slots.')
+        self._scroll = ScrollContainer(
+            parent=self.content,
+            align=uiconst.TOALL,
+            padding=(8, 2, 8, 8),
+        )
+        self._body = Container(
+            parent=self._scroll,
+            align=uiconst.TOTOP,
+            height=600,
+        )
+        self._status = EveLabelMedium(
+            parent=self._body,
+            align=uiconst.TOTOP,
+            height=32,
+            padLeft=10,
+            padTop=8,
+            text='Auto Target Lock is disabled.',
+        )
+        self._details = EveLabelMedium(
+            parent=self._body,
+            align=uiconst.TOTOP,
+            height=44,
+            padLeft=10,
+            padTop=2,
+            text='Hostile NPCs only. Existing locks are never removed.',
+        )
+        self._toggle_button = Button(
+            parent=self._body,
+            align=uiconst.TOTOP,
+            label='Enable Auto Target Lock',
+            func=self._toggle,
+            padLeft=10,
+            height=32,
+        )
+        Container(parent=self._body, align=uiconst.TOTOP, height=10)
+        EveLabelMedium(
+            parent=self._body,
+            align=uiconst.TOTOP,
+            height=24,
+            padLeft=10,
+            text='Enemy details: name | type | faction | distance | lock state | weakness',
+        )
+        self._targets = EveLabelMedium(
+            parent=self._body,
+            align=uiconst.TOTOP,
+            height=470,
+            padLeft=10,
+            padTop=4,
+            text='Enable Auto Target Lock to scan for hostile NPCs.',
+        )
 
     def _toggle(self, *args):
         self._enabled = not self._enabled
@@ -465,10 +623,12 @@ class AutoTargetLockWindow(Window):
         if self._enabled:
             self._toggle_button.SetLabel('Disable Auto Target Lock')
             self._set_status('Auto Target Lock is enabled.')
+            self._set_targets([], 'Scanning for hostile NPCs...')
             uthread.new(self._run, self._generation)
         else:
             self._toggle_button.SetLabel('Enable Auto Target Lock')
             self._set_status('Auto Target Lock is disabled.')
+            self._set_targets([], 'Enable Auto Target Lock to scan for hostile NPCs.')
 
     def _set_status(self, text):
         if not getattr(self, 'destroyed', False):
@@ -478,26 +638,47 @@ class AutoTargetLockWindow(Window):
         if not getattr(self, 'destroyed', False):
             self._details.SetText(text)
 
-    def _candidate_targets(self, ballpark, target_service, max_range):
+    def _set_targets(self, records, empty_text=None):
+        if getattr(self, 'destroyed', False):
+            return
+        displayed_count = min(len(records), MAX_DISPLAY_TARGETS)
+        line_count = max(2, displayed_count * 2 + (1 if len(records) > MAX_DISPLAY_TARGETS else 0))
+        self._targets.height = max(60, line_count * 26 + 20)
+        self._body.height = 160 + self._targets.height
+        if not records:
+            self._targets.SetText(empty_text or 'No hostile NPCs currently in range.')
+            return
+        lines = []
+        for record in records[:MAX_DISPLAY_TARGETS]:
+            lines.append(
+                '%s [%s]\n  %s | %s | %s | Weak: %s' % (
+                    record['name'],
+                    record['type'],
+                    record['faction'],
+                    _format_distance(record['distance']),
+                    record['status'],
+                    record['weakness'],
+                )
+            )
+        if len(records) > MAX_DISPLAY_TARGETS:
+            lines.append('... and %d more hostile NPC(s).' % (len(records) - MAX_DISPLAY_TARGETS))
+        self._targets.SetText('\n'.join(lines))
+
+    def _target_records(self, ballpark, target_service, max_range, locked=None, locking=None):
         if max_range <= 0.0:
             return []
         own_ship_id = _positive_int(getattr(session, 'shipid', None))
         if own_ship_id is None:
             return []
-        locked = _locked_ids(target_service)
-        locking = _locking_ids(target_service)
-        available_slots = _available_target_slots(target_service, len(locked), len(locking))
-        if available_slots <= 0:
-            return []
+        locked = locked if locked is not None else _locked_ids(target_service)
+        locking = locking if locking is not None else _locking_ids(target_service)
         owned_drone_ids = _owned_drone_ids()
-        candidates = []
+        records = []
         for item_id, slim in getattr(ballpark, 'slimItems', {}).items():
             item_id = _positive_int(item_id)
             if (
                 item_id is None
                 or item_id == own_ship_id
-                or item_id in locked
-                or item_id in locking
                 or item_id in owned_drone_ids
                 or _is_owned_by_player(slim)
             ):
@@ -511,9 +692,28 @@ class AutoTargetLockWindow(Window):
             distance = _distance(ballpark, own_ship_id, item_id, target_ball)
             if distance is None or distance > max_range * TARGETING_MARGIN:
                 continue
-            candidates.append((distance, item_id))
-        candidates.sort()
-        return candidates[:available_slots]
+            type_name = _target_type_name(slim)
+            faction_name = _target_faction_name(slim)
+            records.append({
+                'distance': distance,
+                'item_id': item_id,
+                'name': _target_name(slim, target_ball, type_name),
+                'type': type_name,
+                'faction': faction_name,
+                'weakness': _target_weakness(slim, faction_name, type_name),
+                'status': 'LOCKED' if item_id in locked else 'LOCKING' if item_id in locking else 'AVAILABLE',
+            })
+        records.sort(key=lambda record: (record['distance'], record['item_id']))
+        return records
+
+    def _candidate_targets(self, records, available_slots):
+        if available_slots <= 0:
+            return []
+        return [
+            (record['distance'], record['item_id'])
+            for record in records
+            if record['status'] == 'AVAILABLE'
+        ][:available_slots]
 
     def _scan_and_lock(self):
         try:
@@ -523,14 +723,26 @@ class AutoTargetLockWindow(Window):
             if own_ship_id is not None and _is_in_warp(ballpark, own_ship_id):
                 locked_count = len(_locked_ids(target_service))
                 self._set_details('Targeting paused while warping. | Locked: %d' % locked_count)
+                self._set_targets([], 'Target scan paused while warping.')
                 return
-            locked_count = len(_locked_ids(target_service))
-            locking_count = len(_locking_ids(target_service))
-            if _available_target_slots(target_service, locked_count, locking_count) <= 0:
+            locked_ids = _locked_ids(target_service)
+            locking_ids = _locking_ids(target_service)
+            locked_count = len(locked_ids)
+            locking_count = len(locking_ids)
+            max_range = _max_targeting_range(target_service)
+            records = self._target_records(
+                ballpark,
+                target_service,
+                max_range,
+                locked_ids,
+                locking_ids,
+            )
+            self._set_targets(records)
+            available_slots = _available_target_slots(target_service, locked_count, locking_count)
+            if available_slots <= 0:
                 self._set_details('Targeting paused: target slots full. | Locked: %d | Locking: %d' % (locked_count, locking_count))
                 return
-            max_range = _max_targeting_range(target_service)
-            candidates = self._candidate_targets(ballpark, target_service, max_range)
+            candidates = self._candidate_targets(records, available_slots)
             if not candidates:
                 self._set_details('Target range: %.0f m | Locked: %d | Locking: %d | No hostile NPCs in range.' % (max_range, locked_count, locking_count))
                 return
@@ -541,6 +753,7 @@ class AutoTargetLockWindow(Window):
             self._set_details('Target range: %.0f m | Locked: %d | Locking: %d | Lock requests: %d' % (max_range, locked_count, locking_count, locked))
         except Exception as error:
             self._set_details('Target scan unavailable: %s' % error)
+            self._set_targets([], 'Target scan unavailable: %s' % error)
 
     def _run(self, generation):
         while self._enabled and generation == self._generation and not getattr(self, 'destroyed', False):

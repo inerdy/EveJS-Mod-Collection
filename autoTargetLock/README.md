@@ -24,3 +24,9 @@ while a target is unavailable, out of range, or otherwise not lockable.
 
 The feature is off by default and does not automatically unlock targets when
 disabled.
+
+When enabled, the window also shows hostile NPCs currently inside the live
+targeting range. Each entry includes the visible name, type, faction, distance,
+lock state, and a weakness recommendation. Known faction profiles use the
+standard damage recommendation; targets without a recognized profile show
+`Unknown` rather than assuming a weakness.
