@@ -86,6 +86,15 @@ const DEFAULT_RESOURCE_LIQUIDITY = Object.freeze({
   maximumOrderQuantity: 5000000,
   typeIDs: DEFAULT_RESOURCE_TYPE_IDS,
 });
+const DEFAULT_PLAYER_SELL_BUYBACK = Object.freeze({
+  enabled: true,
+  resourceOnly: true,
+  chancePerTick: 0.25,
+  minimumPriceRatio: 0.85,
+  maximumPriceRatio: 1.2,
+  maxOrdersPerHubPerTick: 10,
+  maximumQuantityPerOrder: 0,
+});
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
@@ -108,6 +117,7 @@ const DEFAULT_CONFIG = Object.freeze({
   hubFuelSeed: DEFAULT_HUB_FUEL_SEED,
   oreLiquidity: DEFAULT_ORE_LIQUIDITY,
   resourceLiquidity: DEFAULT_RESOURCE_LIQUIDITY,
+  playerSellBuyback: DEFAULT_PLAYER_SELL_BUYBACK,
   discordWebhookUrl: "",
   discordNotifyWhenEmpty: false,
   hubStationIDs: DEFAULT_HUBS,
@@ -220,6 +230,40 @@ function normalizeResourceLiquidity(value) {
   };
 }
 
+function normalizePlayerSellBuyback(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const minimumPriceRatio = Math.max(
+    0.01,
+    number(source.minimumPriceRatio, DEFAULT_PLAYER_SELL_BUYBACK.minimumPriceRatio),
+  );
+  const maximumPriceRatio = Math.max(
+    minimumPriceRatio,
+    number(source.maximumPriceRatio, DEFAULT_PLAYER_SELL_BUYBACK.maximumPriceRatio),
+  );
+  return {
+    enabled: source.enabled !== false,
+    resourceOnly: source.resourceOnly !== false,
+    chancePerTick: Math.max(
+      0,
+      Math.min(1, number(source.chancePerTick, DEFAULT_PLAYER_SELL_BUYBACK.chancePerTick)),
+    ),
+    minimumPriceRatio,
+    maximumPriceRatio,
+    maxOrdersPerHubPerTick: integer(
+      source.maxOrdersPerHubPerTick,
+      DEFAULT_PLAYER_SELL_BUYBACK.maxOrdersPerHubPerTick,
+      1,
+      10000,
+    ),
+    maximumQuantityPerOrder: integer(
+      source.maximumQuantityPerOrder,
+      DEFAULT_PLAYER_SELL_BUYBACK.maximumQuantityPerOrder,
+      0,
+      1000000000,
+    ),
+  };
+}
+
 function resolveConfiguredPath(value, fallback) {
   const configured = String(value || "").trim();
   if (!configured) return fallback;
@@ -252,6 +296,7 @@ function normalizeConfig(value = {}) {
     ),
     oreLiquidity: normalizeOreLiquidity(source.oreLiquidity),
     resourceLiquidity: normalizeResourceLiquidity(source.resourceLiquidity),
+    playerSellBuyback: normalizePlayerSellBuyback(source.playerSellBuyback),
     discordWebhookUrl: String(source.discordWebhookUrl || "").trim(),
     discordNotifyWhenEmpty: source.discordNotifyWhenEmpty === true,
     hubStationIDs: positiveIDs(source.hubStationIDs, DEFAULT_HUBS),
@@ -283,6 +328,7 @@ module.exports = {
   DEFAULT_FUEL_SEEDS,
   DEFAULT_ORE_LIQUIDITY,
   DEFAULT_ORE_TYPE_IDS,
+  DEFAULT_PLAYER_SELL_BUYBACK,
   DEFAULT_RESOURCE_LIQUIDITY,
   DEFAULT_RESOURCE_TYPE_IDS,
   DEFAULT_PRICE_MANIFEST_PATH,
@@ -290,5 +336,6 @@ module.exports = {
   loadConfig,
   normalizeConfig,
   normalizeOreLiquidity,
+  normalizePlayerSellBuyback,
   normalizeResourceLiquidity,
 };

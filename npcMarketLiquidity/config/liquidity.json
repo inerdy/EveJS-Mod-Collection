@@ -49,6 +49,15 @@
       28627, 28628
     ]
   },
+  "playerSellBuyback": {
+    "enabled": true,
+    "resourceOnly": true,
+    "chancePerTick": 0.25,
+    "minimumPriceRatio": 0.85,
+    "maximumPriceRatio": 1.2,
+    "maxOrdersPerHubPerTick": 10,
+    "maximumQuantityPerOrder": 0
+  },
   "hubStationIDs": [
     60003760,
     60008494,

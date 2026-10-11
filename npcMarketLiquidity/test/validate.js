@@ -19,6 +19,13 @@ assert.equal(config.oreLiquidity.typeIDs.length, 16);
 assert.equal(config.resourceLiquidity.enabled, true);
 assert.equal(config.resourceLiquidity.targetOrderVolumeM3, 250000);
 assert.equal(config.resourceLiquidity.typeIDs.includes(16265), true);
+assert.equal(config.playerSellBuyback.enabled, true);
+assert.equal(config.playerSellBuyback.resourceOnly, true);
+assert.equal(config.playerSellBuyback.chancePerTick, 0.25);
+assert.equal(config.playerSellBuyback.minimumPriceRatio, 0.85);
+assert.equal(config.playerSellBuyback.maximumPriceRatio, 1.2);
+assert.equal(config.playerSellBuyback.maxOrdersPerHubPerTick, 10);
+assert.equal(config.playerSellBuyback.maximumQuantityPerOrder, 0);
 assert.equal(config.fuelSeeds.length, 4);
 assert.deepEqual(config.fuelSeeds.map((seed) => seed.typeID), [17889, 16274, 17888, 17887]);
 assert.equal(config.hubFuelSeed.typeID, 17887);
@@ -31,7 +38,7 @@ const migratedState = normalizeState({fuelSeedByStation: {
 assert.equal(migratedState.fuelSeedByStation["60003760"].orderID, "41");
 assert.equal(migratedState.fuelSeedByStation["60003760:17889"].orderID, "42");
 const marketManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "evejs-launcher.mod.json"), "utf8"));
-assert.equal(marketManifest.version, "0.5.0");
+assert.equal(marketManifest.version, "0.6.0");
 assert.equal(config.priceManifestEnabled, true);
 assert.equal(config.allowCalculatedManifestPrices, true);
 assert.equal(config.priceManifestPath.endsWith(path.join("mods", "npcMarketLiquidity", "data", "price-manifest.json")), true);
@@ -81,6 +88,25 @@ assert.equal(manifestReference.bestBid, null);
 assert.equal(manifestReference.askReference, manifest.entries.get(34).price);
 assert.equal(manifestReference.bidReference, manifest.entries.get(34).price);
 assert.equal(pricing.isRealMarketSource(manifest.entries.get(34).source), true);
+const buybackSettings = config.playerSellBuyback;
+assert.equal(service._testing.buybackPriceScore(85, 100, buybackSettings), 1);
+assert.equal(service._testing.buybackPriceScore(120, 100, buybackSettings), 0);
+assert.ok(Math.abs(service._testing.buybackPriceScore(100, 100, buybackSettings) - (20 / 35)) < 0.000001);
+assert.ok(Math.abs(service._testing.buybackChance(100, 100, buybackSettings) - (5 / 35)) < 0.000001);
+assert.equal(service._testing.isPlayerSellOrder({
+  order_id: "77",
+  source: "player",
+  bid: false,
+  price: 100,
+  vol_remaining: 5,
+}), true);
+assert.equal(service._testing.isPlayerSellOrder({
+  order_id: "78",
+  source: "npc-passive",
+  bid: false,
+  price: 100,
+  vol_remaining: 5,
+}), false);
 const realOnlyManifest = pricing.loadPriceManifest(config.priceManifestPath, {allowCalculated: false});
 assert.equal(realOnlyManifest.loaded, true);
 assert.equal(realOnlyManifest.calculatedEntries, 0);

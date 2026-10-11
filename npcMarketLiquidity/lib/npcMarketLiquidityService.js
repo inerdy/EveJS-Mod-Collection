@@ -10,6 +10,7 @@ const {resolveDataRootPath} = require(serverPath("config", "dataRoot"));
 const {listItemTypes} = require(serverPath("services", "inventory", "itemTypeRegistry"));
 const {getStationRecord} = require(serverPath("services", "_shared", "stationStaticData"));
 const {marketDaemonClient} = require(serverPath("services", "market", "marketDaemonClient"));
+const {isBidOrderInRange} = require(serverPath("services", "market", "marketTopology"));
 const {loadConfig} = require(path.join(__dirname, "config"));
 const {createStateStore, normalizeState} = require(path.join(__dirname, "state"));
 const {
@@ -132,6 +133,93 @@ function orderSource(stationID, typeID, side, slot) {
   return `${SOURCE}:${stationID}:${typeID}:${side}:${slot}`;
 }
 
+const SYNTHETIC_BUY_SOURCES = new Set(["npc-passive", "seed"]);
+
+function normalizedOrderIDForComparison(value) {
+  return normalizedOrderID(value);
+}
+
+function isPlayerSellOrder(order) {
+  return Boolean(
+    order &&
+    normalizedOrderIDForComparison(order.order_id) &&
+    Boolean(order.bid) === false &&
+    String(order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE &&
+    positive(order.vol_remaining, 0) > 0 &&
+    Number(order.price) > 0,
+  );
+}
+
+function isSyntheticBuyOrder(order) {
+  return Boolean(
+    order &&
+    Boolean(order.bid) === true &&
+    SYNTHETIC_BUY_SOURCES.has(String(order.source || "").toLowerCase()) &&
+    positive(order.vol_remaining, 0) > 0 &&
+    Number(order.price) > 0,
+  );
+}
+
+function buybackReferencePrice(reference, fallbackReference = null) {
+  const bestBid = Number(reference && reference.bestBid);
+  const bestAsk = Number(reference && reference.bestAsk);
+  if (Number.isFinite(bestBid) && bestBid > 0) {
+    if (Number.isFinite(bestAsk) && bestAsk > 0) {
+      return (bestBid + bestAsk) / 2;
+    }
+    return Number(reference.bidReference) > 0
+      ? Number(reference.bidReference)
+      : bestBid;
+  }
+  const fallbackPrice = Number(
+    fallbackReference && (
+      fallbackReference.askReference ||
+      fallbackReference.bidReference ||
+      fallbackReference.price
+    ),
+  );
+  if (Number.isFinite(fallbackPrice) && fallbackPrice > 0) return fallbackPrice;
+  const askReference = Number(reference && reference.askReference);
+  const bidReference = Number(reference && reference.bidReference);
+  if (Number.isFinite(askReference) && askReference > 0 &&
+      Number.isFinite(bidReference) && bidReference > 0) {
+    return (askReference + bidReference) / 2;
+  }
+  if (Number.isFinite(askReference) && askReference > 0) return askReference;
+  if (Number.isFinite(bidReference) && bidReference > 0) return bidReference;
+  return null;
+}
+
+function buybackPriceScore(orderPrice, referencePrice, settings) {
+  const price = Number(orderPrice);
+  const reference = Number(referencePrice);
+  if (!(price > 0) || !(reference > 0)) return 0;
+  const minimum = reference * Math.max(0.01, Number(settings && settings.minimumPriceRatio) || 0.01);
+  const maximum = reference * Math.max(
+    Number(settings && settings.maximumPriceRatio) || 0.01,
+    Number(settings && settings.minimumPriceRatio) || 0.01,
+  );
+  if (price > maximum) return 0;
+  if (price <= minimum || maximum <= minimum) return 1;
+  return Math.max(0, Math.min(1, (maximum - price) / (maximum - minimum)));
+}
+
+function buybackChance(orderPrice, referencePrice, settings) {
+  const baseChance = Math.max(0, Math.min(1, Number(settings && settings.chancePerTick) || 0));
+  return baseChance * buybackPriceScore(orderPrice, referencePrice, settings);
+}
+
+function getMarketProxyFillHooks() {
+  try {
+    const MarketProxyService = require(serverPath("services", "market", "marketProxyService"));
+    return MarketProxyService && MarketProxyService.__testHooks
+      ? MarketProxyService.__testHooks
+      : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 class NpcMarketLiquidityService extends BaseService {
   constructor(options = {}) {
     super(MOD_ID);
@@ -152,6 +240,7 @@ class NpcMarketLiquidityService extends BaseService {
     this._daemonCapabilityVerified = false;
     this._daemonStartedAt = "";
     this._marketRestarted = false;
+    this._buybackHookWarningLogged = false;
     this._lastStatus = {state: "created", created: 0, replaced: 0, skipped: 0};
     for (const orderID of Array.isArray(this._state.managedOrderIDs) ? this._state.managedOrderIDs : []) {
       registerManagedOrderID(orderID);
@@ -199,6 +288,7 @@ class NpcMarketLiquidityService extends BaseService {
       ...this._lastStatus,
       enabled: this._config.enabled,
       dryRun: this._config.dryRun,
+      playerSellBuyback: this._config.playerSellBuyback,
       compatibilityMode: "legacy-player-order-bridge",
       discordWebhookConfigured: isDiscordConfigured(this._config.discordWebhookUrl),
       managedOrderCount: managedOrderIDs.size,
@@ -526,6 +616,237 @@ class NpcMarketLiquidityService extends BaseService {
     return {created: true, replaced};
   }
 
+  _shouldBuyPlayerSellOrders(item, overrides = {}) {
+    const settings = this._config.playerSellBuyback;
+    if (!settings || settings.enabled === false || overrides.buyback === false) return false;
+    if (
+      overrides.mode !== "resource" &&
+      this._config.resourceLiquidity.enabled &&
+      this._config.resourceLiquidity.typeIDs.includes(positive(item && item.typeID))
+    ) {
+      return false;
+    }
+    if (!settings.resourceOnly) return true;
+    return this._config.resourceLiquidity.typeIDs.includes(positive(item && item.typeID));
+  }
+
+  _buybackQuantityForItem(item) {
+    const configuredMaximum = positive(
+      this._config.playerSellBuyback.maximumQuantityPerOrder,
+      0,
+    );
+    if (configuredMaximum > 0) return configuredMaximum;
+    const overrides = resourceOrderOverrides(item, this._config);
+    return quantityForItem(item, this._config, overrides);
+  }
+
+  async _settlePlayerSellOrderWithNpc(station, item, sellOrder, fillQuantity) {
+    const hooks = getMarketProxyFillHooks();
+    if (!hooks || typeof hooks.applySellOrderCrossingAfterModify !== "function") {
+      if (!this._buybackHookWarningLogged) {
+        this._buybackHookWarningLogged = true;
+        log.warn(
+          `[${MOD_ID}] player sell buyback is unavailable: ` +
+          "EveJS market fill hooks are missing",
+        );
+      }
+      return {filledQuantity: 0, unavailable: true};
+    }
+
+    const orderID = normalizedOrderID(sellOrder && sellOrder.order_id);
+    if (!orderID) return {filledQuantity: 0};
+    const current = await marketDaemonClient.call("GetOrder", {order_id: orderID});
+    const currentState = String(current && current.state || "open").toLowerCase();
+    const currentRemaining = positive(
+      current && current.vol_remaining,
+      positive(sellOrder && sellOrder.vol_remaining, 0),
+    );
+    const price = Number(current && current.price) || Number(sellOrder && sellOrder.price) || 0;
+    if (currentState !== "open" || currentRemaining <= 0 || !(price > 0)) {
+      return {filledQuantity: 0, stale: true};
+    }
+
+    const quantity = Math.min(
+      currentRemaining,
+      Math.max(1, positive(fillQuantity, 1)),
+    );
+    const regionID = positive(
+      current && current.region_id,
+      positive(sellOrder && sellOrder.region_id, 0),
+    );
+    const book = regionID > 0
+      ? await marketDaemonClient.call("GetOrders", {
+        region_id: regionID,
+        type_id: positive(item && item.typeID, positive(sellOrder && sellOrder.type_id, 0)),
+      })
+      : null;
+    const competingPlayerBuy = (Array.isArray(book && book.buys) ? book.buys : []).some((order) => (
+      String(order && order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE &&
+      Boolean(order && order.bid) === true &&
+      positive(order && order.vol_remaining, 0) > 0 &&
+      Number(order && order.price) + 0.0001 >= price &&
+      isBidOrderInRange(
+        order,
+        positive(current && current.station_id, positive(sellOrder && sellOrder.station_id, 0)),
+        positive(current && current.solar_system_id, positive(sellOrder && sellOrder.solar_system_id, 0)),
+      )
+    ));
+    if (competingPlayerBuy) {
+      return {filledQuantity: 0, skippedForPlayerBid: true};
+    }
+
+    let temporaryBuyOrderID = "";
+    try {
+      const placed = await marketDaemonClient.call("PlaceOrder", {
+        owner_id: NPC_OWNER_ID,
+        is_corp: false,
+        station_id: positive(station && station.stationID, 0) ||
+          positive(sellOrder && sellOrder.station_id, 0) ||
+          positive(current && current.station_id, 0),
+        type_id: positive(item && item.typeID, positive(current && current.type_id, 0)),
+        price,
+        quantity,
+        min_volume: this._config.minimumVolume,
+        duration_days: 1,
+        range_value: 32767,
+        bid: true,
+        source: LEGACY_DAEMON_SOURCE,
+      });
+      temporaryBuyOrderID = registerManagedOrderID(placed && placed.order_id);
+      if (!temporaryBuyOrderID) {
+        throw new Error("market daemon did not return a buyback order ID");
+      }
+
+      // The crossing helper is the same settlement path used when a player
+      // modifies a sell order into a crossing price. Limit the temporary row's
+      // visible remaining volume so one tick cannot consume the whole listing.
+      const orderForCrossing = {
+        ...current,
+        order_id: orderID,
+        row: {
+          ...current,
+          order_id: orderID,
+          price,
+          vol_remaining: quantity,
+          type_id: positive(item && item.typeID, positive(current && current.type_id, 0)),
+        },
+      };
+      const crossingResponse = await hooks.applySellOrderCrossingAfterModify(
+        null,
+        orderForCrossing,
+        price,
+      );
+      const after = await marketDaemonClient.call("GetOrder", {order_id: orderID });
+      const afterRemaining = positive(after && after.vol_remaining, 0);
+      const filledQuantity = Math.max(0, currentRemaining - afterRemaining);
+      return {
+        filledQuantity: Math.min(currentRemaining, filledQuantity),
+        crossingResponse,
+      };
+    } finally {
+      if (temporaryBuyOrderID) {
+        try {
+          const temporary = await marketDaemonClient.call("GetOrder", {
+            order_id: temporaryBuyOrderID,
+          });
+          if (String(temporary && temporary.state || "open").toLowerCase() === "open" &&
+              positive(temporary && temporary.vol_remaining, 0) > 0) {
+            await marketDaemonClient.call("CancelOrder", {order_id: temporaryBuyOrderID});
+          }
+        } catch (error) {
+          log.warn(
+            `[${MOD_ID}] buyback cleanup failed order=${temporaryBuyOrderID}: ` +
+            String(error && error.message || error),
+          );
+        }
+        unregisterManagedOrderID(temporaryBuyOrderID);
+      }
+    }
+  }
+
+  async _buyPlayerSellOrders(station, item, book, fallbackReference) {
+    const result = {
+      evaluated: 0,
+      attempted: 0,
+      filledOrders: 0,
+      filledQuantity: 0,
+      failed: 0,
+      skipped: 0,
+    };
+    const settings = this._config.playerSellBuyback;
+    if (!settings || settings.enabled === false) return result;
+    const sellOrders = (Array.isArray(book && book.sells) ? book.sells : [])
+      .filter(isPlayerSellOrder)
+      .sort((left, right) => (
+        Number(left.price) - Number(right.price) ||
+        Number(left.order_id) - Number(right.order_id)
+      ));
+    if (sellOrders.length === 0) return result;
+
+    const maxOrders = Math.max(1, positive(settings.maxOrdersPerHubPerTick, 1));
+    const random = Math.random;
+    for (const sellOrder of sellOrders) {
+      if (result.attempted >= maxOrders) break;
+      const candidateBook = {
+        sells: (Array.isArray(book && book.sells) ? book.sells : [])
+          .filter((row) => normalizedOrderIDForComparison(row && row.order_id) !== normalizedOrderIDForComparison(sellOrder.order_id)),
+        buys: Array.isArray(book && book.buys) ? book.buys : [],
+      };
+      const candidateReference = buildReference(
+        candidateBook,
+        this._config.minimumSpreadRatio,
+      ) || fallbackReference;
+      const manifestReference = this._manifestReference(item.typeID);
+      const referencePrice = buybackReferencePrice(candidateReference, manifestReference);
+      const price = Number(sellOrder.price) || 0;
+      const chance = buybackChance(price, referencePrice, settings);
+      result.evaluated += 1;
+      if (!(chance > 0) || random() >= chance) {
+        result.skipped += 1;
+        continue;
+      }
+
+      result.attempted += 1;
+      const quantity = Math.min(
+        positive(sellOrder.vol_remaining, 0),
+        this._buybackQuantityForItem(item),
+      );
+      if (quantity <= 0) {
+        result.skipped += 1;
+        continue;
+      }
+      if (this._config.dryRun) {
+        log.info(
+          `[${MOD_ID}] dry-run player sell buyback item=${item.name} ` +
+          `type=${item.typeID} station=${station.stationID} order=${sellOrder.order_id} ` +
+          `price=${price} quantity=${quantity} chance=${chance.toFixed(4)}`,
+        );
+        continue;
+      }
+
+      try {
+        const settled = await this._settlePlayerSellOrderWithNpc(station, item, sellOrder, quantity);
+        const filledQuantity = positive(settled && settled.filledQuantity, 0);
+        if (filledQuantity > 0) {
+          result.filledOrders += 1;
+          result.filledQuantity += filledQuantity;
+          log.info(
+            `[${MOD_ID}] NPC bought player sell order=${sellOrder.order_id} ` +
+            `type=${item.typeID} quantity=${filledQuantity} price=${price} ` +
+            `station=${station.stationID}`,
+          );
+        }
+      } catch (error) {
+        result.failed += 1;
+        log.warn(
+          `[${MOD_ID}] player sell buyback failed order=${sellOrder.order_id} ` +
+          `type=${item.typeID}: ${String(error && error.message || error)}`,
+        );
+      }
+    }
+    return result;
+  }
+
   async _processHub(station, items, existing, nowMs, overrides = {}) {
     const key = String(station.stationID);
     const priorityPass = overrides.priority === true;
@@ -561,6 +882,11 @@ class NpcMarketLiquidityService extends BaseService {
     let failed = fuelSeedResult.failed;
     let manifestFallback = 0;
     let calculatedFallback = 0;
+    let buybackEvaluated = 0;
+    let buybackAttempted = 0;
+    let buybackOrders = 0;
+    let buybackQuantity = 0;
+    let buybackFailed = 0;
     let openAtHub = existing.filter((order) => String(order.state) === "open" && positive(order.station_id) === station.stationID).length;
     for (const item of selected) {
       if (openAtHub >= this._config.maxActiveOrdersPerHub) break;
@@ -595,12 +921,21 @@ class NpcMarketLiquidityService extends BaseService {
           if (result.created && !result.replaced) openAtHub += 1;
         }
       }
+      if (this._shouldBuyPlayerSellOrders(item, overrides)) {
+        const buyback = await this._buyPlayerSellOrders(station, item, book, reference);
+        buybackEvaluated += buyback.evaluated;
+        buybackAttempted += buyback.attempted;
+        buybackOrders += buyback.filledOrders;
+        buybackQuantity += buyback.filledQuantity;
+        buybackFailed += buyback.failed;
+      }
     }
     log.info(
       `[${MOD_ID}] hub=${station.stationID} mode=${overrides.mode || (priorityPass ? "ore-buy" : "standard")} ` +
       `processed=${selected.length} created=${created} ` +
       `replaced=${replaced} skipped=${skipped} manifestFallback=${manifestFallback} ` +
-      `calculatedFallback=${calculatedFallback} at=${nowMs}`,
+      `calculatedFallback=${calculatedFallback} buybackOrders=${buybackOrders} ` +
+      `buybackQuantity=${buybackQuantity} buybackFailed=${buybackFailed} at=${nowMs}`,
     );
     return {
       stationID: station.stationID,
@@ -611,12 +946,17 @@ class NpcMarketLiquidityService extends BaseService {
       failed,
       manifestFallback,
       calculatedFallback,
+      buybackEvaluated,
+      buybackAttempted,
+      buybackOrders,
+      buybackQuantity,
+      buybackFailed,
       fuelSeed: fuelSeedResult,
     };
   }
 
   async _notifyDiscord(totals, hubs, nowMs) {
-    const changeCount = totals.created + totals.replaced + totals.failed;
+    const changeCount = totals.created + totals.replaced + totals.failed + totals.buybackOrders + totals.buybackFailed;
     const seedActivity = totals.seedCreated + totals.seedSkipped + totals.seedFailed;
     if (!isDiscordConfigured(this._config.discordWebhookUrl)) return;
     if (changeCount === 0 && seedActivity === 0 && !this._config.discordNotifyWhenEmpty) return;
@@ -626,11 +966,14 @@ class NpcMarketLiquidityService extends BaseService {
       `Created: ${totals.created} | Replaced: ${totals.replaced} | ` +
         `Skipped: ${totals.skipped} | Failed: ${totals.failed}`,
       `Manifest fallback: ${totals.manifestFallback} | Calculated fallback: ${totals.calculatedFallback}`,
+      `Player sell buyback: ${totals.buybackOrders} orders | ${totals.buybackQuantity} units | failed ${totals.buybackFailed}`,
       `Fuel seeds: created ${totals.seedCreated} | skipped ${totals.seedSkipped} | failed ${totals.seedFailed}`,
       ...hubs
         .filter((hub) => hub.created > 0 || hub.replaced > 0 || hub.skipped > 0 || hub.failed > 0 ||
+          hub.buybackOrders > 0 || hub.buybackFailed > 0 ||
           hub.fuelSeed && (hub.fuelSeed.created > 0 || hub.fuelSeed.skipped > 0 || hub.fuelSeed.failed > 0))
         .map((hub) => `- ${hub.stationName} (${hub.stationID}): created ${hub.created}, replaced ${hub.replaced}, skipped ${hub.skipped}, failed ${hub.failed}; ` +
+          `buyback ${hub.buybackOrders}/${hub.buybackQuantity}, buyback failed ${hub.buybackFailed}; ` +
           `fuel seeds created ${hub.fuelSeed.created}, skipped ${hub.fuelSeed.skipped}, failed ${hub.fuelSeed.failed}`),
     ];
     try {
@@ -657,6 +1000,11 @@ class NpcMarketLiquidityService extends BaseService {
       seedFailed: 0,
       manifestFallback: 0,
       calculatedFallback: 0,
+      buybackEvaluated: 0,
+      buybackAttempted: 0,
+      buybackOrders: 0,
+      buybackQuantity: 0,
+      buybackFailed: 0,
     };
     const hubs = [];
     try {
@@ -684,6 +1032,7 @@ class NpcMarketLiquidityService extends BaseService {
             {
               mode: "resource",
               priority: true,
+              buyback: true,
               ordersPerItem: this._config.ordersPerSide,
               replaceIfQuantityBelow: true,
             },
@@ -695,6 +1044,11 @@ class NpcMarketLiquidityService extends BaseService {
           totals.failed += resourceResult.failed;
           totals.manifestFallback += resourceResult.manifestFallback;
           totals.calculatedFallback += resourceResult.calculatedFallback;
+          totals.buybackEvaluated += resourceResult.buybackEvaluated;
+          totals.buybackAttempted += resourceResult.buybackAttempted;
+          totals.buybackOrders += resourceResult.buybackOrders;
+          totals.buybackQuantity += resourceResult.buybackQuantity;
+          totals.buybackFailed += resourceResult.buybackFailed;
           totals.seedCreated += resourceResult.fuelSeed.created;
           totals.seedSkipped += resourceResult.fuelSeed.skipped;
           totals.seedFailed += resourceResult.fuelSeed.failed;
@@ -704,7 +1058,7 @@ class NpcMarketLiquidityService extends BaseService {
           items,
           existing,
           nowMs,
-          orderOverrides,
+          {...orderOverrides, buyback: !oreOnly},
         );
         hubs.push(result);
         totals.created += result.created;
@@ -713,6 +1067,11 @@ class NpcMarketLiquidityService extends BaseService {
         totals.failed += result.failed;
         totals.manifestFallback += result.manifestFallback;
         totals.calculatedFallback += result.calculatedFallback;
+        totals.buybackEvaluated += result.buybackEvaluated;
+        totals.buybackAttempted += result.buybackAttempted;
+        totals.buybackOrders += result.buybackOrders;
+        totals.buybackQuantity += result.buybackQuantity;
+        totals.buybackFailed += result.buybackFailed;
         totals.seedCreated += result.fuelSeed.created;
         totals.seedSkipped += result.fuelSeed.skipped;
         totals.seedFailed += result.fuelSeed.failed;
@@ -746,6 +1105,10 @@ module.exports._testing = {
   eligibleItem,
   quantityForItem,
   orderSource,
+  buybackChance,
+  buybackPriceScore,
+  buybackReferencePrice,
+  isPlayerSellOrder,
   resourceOrderOverrides,
   registerManagedOrderID,
   rewriteLegacyOrderSources,

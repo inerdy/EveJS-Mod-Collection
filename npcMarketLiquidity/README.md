@@ -74,6 +74,16 @@ stopped, then restart the Game server.
   control the larger resource order sizing overlay. Resource settings take
   precedence over the normal target and the faster ore-buy target for matching
   type IDs.
+- `playerSellBuyback` enables the NPC's periodic buyback of standing player
+  sell orders. It is enabled for ores, ice, and compressed ice by default.
+  `chancePerTick` is the maximum purchase chance for an especially good price;
+  the chance decreases linearly from `minimumPriceRatio` to
+  `maximumPriceRatio` against the current market/manifest reference. Orders
+  above the maximum ratio are ignored. `maxOrdersPerHubPerTick` limits how
+  many player orders a hub can attempt per pass, and
+  `maximumQuantityPerOrder` caps one fill (`0` uses the configured resource
+  order size). Set `resourceOnly` to `false` to enable the behavior for every
+  eligible market item processed by the mod.
 - `staleAfterMs`: how long an order can remain open before the next pass may
   replace it using a new market reference.
 - `minimumSpreadRatio`: prevents generated orders from crossing the current
@@ -127,7 +137,10 @@ order path using reserved owner ID `0`. The mod bridge exposes only those
 managed order IDs to EveJS as `npc-passive` orders, so they remain visible
 alongside player and seeded orders, use the native synthetic fill path, and
 are replenished after consumption. Existing seeded liquidity and player
-orders are left in place.
+orders are left in place. On each configured pass, the optional buyback sweep
+evaluates standing player sell orders. A successful buy consumes the escrowed
+items, credits the seller's wallet, and reduces the player order through the
+same durable market-fill path used by normal market transactions.
 
 If the market database is rebuilt with V2, the passive orders disappear with
 the replaced database and are recreated gradually on later scheduler passes.
