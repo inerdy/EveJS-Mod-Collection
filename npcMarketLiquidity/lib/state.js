@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const STATE_VERSION = 4;
+const STATE_VERSION = 5;
 
 function defaultState() {
   return {
@@ -17,6 +17,7 @@ function defaultState() {
     marketStartedAt: "",
     fuelSeedByStation: {},
     fuelDuplicateCleanupCompleted: false,
+    shipDuplicateCleanupCompleted: false,
     lastError: "",
   };
 }
@@ -61,6 +62,7 @@ function normalizeState(value = {}) {
     marketStartedAt: String(source.marketStartedAt || ""),
     fuelSeedByStation,
     fuelDuplicateCleanupCompleted: source.fuelDuplicateCleanupCompleted === true,
+    shipDuplicateCleanupCompleted: source.shipDuplicateCleanupCompleted === true,
     lastError: String(source.lastError || ""),
   };
 }

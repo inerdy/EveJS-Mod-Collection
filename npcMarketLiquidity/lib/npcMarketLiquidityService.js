@@ -344,6 +344,7 @@ class NpcMarketLiquidityService extends BaseService {
       const fuelTypeIDs = new Set((this._config.fuelSeeds || []).map((seed) => positive(seed && seed.typeID)));
       this._items = listItemTypes()
         .filter(eligibleItem)
+        .filter((item) => Number(item.categoryID) !== 6)
         .filter((item) => !fuelTypeIDs.has(positive(item.typeID)))
         .sort((left, right) => positive(left.typeID) - positive(right.typeID));
     }
@@ -464,6 +465,62 @@ class NpcMarketLiquidityService extends BaseService {
     if (cancelled > 0 || failed > 0) {
       log.info(
         `[${MOD_ID}] duplicate fuel cleanup cancelled=${cancelled} failed=${failed}`,
+      );
+    }
+    return {cancelled, failed, skipped: false};
+  }
+
+  async _cleanupDuplicateShipOrders(existing) {
+    if (this._state.shipDuplicateCleanupCompleted) {
+      return {cancelled: 0, failed: 0, skipped: true};
+    }
+
+    const hubIDs = new Set((this._config.hubStationIDs || []).map(Number));
+    const shipTypeIDs = new Set(this._listShipItems().map((item) => Number(item.typeID)));
+    const groups = new Map();
+    for (const order of existing) {
+      if (
+        !order ||
+        Number(order.owner_id) !== NPC_OWNER_ID ||
+        order.is_corp === true ||
+        String(order.source || "").toLowerCase() !== LEGACY_DAEMON_SOURCE ||
+        String(order.state || "open").toLowerCase() !== "open" ||
+        !hubIDs.has(Number(order.station_id)) ||
+        !shipTypeIDs.has(Number(order.type_id))
+      ) continue;
+      const key = `${Number(order.station_id)}:${Number(order.type_id)}:${Boolean(order.bid)}`;
+      const rows = groups.get(key) || [];
+      rows.push(order);
+      groups.set(key, rows);
+    }
+
+    let cancelled = 0;
+    let failed = 0;
+    for (const [key, rows] of groups) {
+      rows.sort((left, right) => Number(left.order_id) - Number(right.order_id));
+      for (const duplicate of rows.slice(1)) {
+        try {
+          await marketDaemonClient.call("CancelOrder", {order_id: duplicate.order_id});
+          const index = existing.indexOf(duplicate);
+          if (index >= 0) existing.splice(index, 1);
+          unregisterManagedOrderID(duplicate.order_id);
+          cancelled += 1;
+        } catch (error) {
+          failed += 1;
+          log.warn(
+            `[${MOD_ID}] duplicate ship cleanup failed order=${duplicate.order_id} ` +
+            `key=${key}: ${String(error && error.message || error)}`,
+          );
+        }
+      }
+    }
+
+    if (failed === 0) {
+      this._state.shipDuplicateCleanupCompleted = true;
+    }
+    if (cancelled > 0 || failed > 0) {
+      log.info(
+        `[${MOD_ID}] duplicate ship cleanup cancelled=${cancelled} failed=${failed}`,
       );
     }
     return {cancelled, failed, skipped: false};
@@ -611,7 +668,9 @@ class NpcMarketLiquidityService extends BaseService {
     const tiers = side === "buy" ? this._config.buyTiers : this._config.sellTiers;
     const tier = chooseTier(tiers, `${station.stationID}:${item.typeID}:${side}:${slot}`);
     const price = buildPrice(side, tier, reference, this._config.minimumSpreadRatio);
-    const quantity = quantityForItem(item, this._config, orderOverrides);
+    const quantity = Number.isFinite(Number(overrides.quantityPerOrder))
+      ? Math.max(this._config.minimumVolume, Math.trunc(Number(overrides.quantityPerOrder)))
+      : quantityForItem(item, this._config, orderOverrides);
     const current = existing
       .filter((order) => (
         String(order.state || "open").toLowerCase() === "open" &&
@@ -971,8 +1030,8 @@ class NpcMarketLiquidityService extends BaseService {
         if (!isRealMarketSource(reference.source)) calculatedFallback += 1;
       }
       const sides = overrides.buyOnly === true ? ["buy"] : ["buy", "sell"];
-      const ordersPerSide = Number.isFinite(Number(overrides.ordersPerItem))
-        ? Math.max(1, Math.trunc(Number(overrides.ordersPerItem)))
+      const ordersPerSide = Number.isFinite(Number(overrides.ordersPerSide))
+        ? Math.max(1, Math.trunc(Number(overrides.ordersPerSide)))
         : this._config.ordersPerSide;
       for (const side of sides) {
         for (let slot = 0; slot < ordersPerSide; slot += 1) {
@@ -1091,6 +1150,7 @@ class NpcMarketLiquidityService extends BaseService {
         : {};
       const existing = await this._listExistingOrders();
       await this._cleanupDuplicateFuelOrders(existing);
+      await this._cleanupDuplicateShipOrders(existing);
       for (const stationID of this._config.hubStationIDs) {
         const station = this._loadHub(stationID);
         if (!oreOnly && this._config.shipLiquidity.enabled) {
@@ -1106,6 +1166,7 @@ class NpcMarketLiquidityService extends BaseService {
               cursorKey: `ship:${stationID}`,
               itemsPerHubPerTick: this._config.shipLiquidity.itemsPerHubPerTick,
               ordersPerSide: this._config.shipLiquidity.ordersPerSide,
+              quantityPerOrder: this._config.shipLiquidity.quantityPerOrder,
               targetOrderVolumeM3: this._config.shipLiquidity.targetOrderVolumeM3,
               maximumOrderQuantity: this._config.shipLiquidity.maximumOrderQuantity,
             },

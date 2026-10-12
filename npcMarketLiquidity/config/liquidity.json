@@ -53,6 +53,7 @@
     "enabled": true,
     "itemsPerHubPerTick": 100,
     "ordersPerSide": 1,
+    "quantityPerOrder": 10,
     "targetOrderVolumeM3": 5000,
     "maximumOrderQuantity": 1000000
   },

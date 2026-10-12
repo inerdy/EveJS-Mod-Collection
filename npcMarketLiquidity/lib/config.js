@@ -90,6 +90,7 @@ const DEFAULT_SHIP_LIQUIDITY = Object.freeze({
   enabled: true,
   itemsPerHubPerTick: 100,
   ordersPerSide: 1,
+  quantityPerOrder: 10,
   targetOrderVolumeM3: 5000,
   maximumOrderQuantity: 1000000,
 });
@@ -244,6 +245,7 @@ function normalizeShipLiquidity(value) {
     enabled: source.enabled !== false,
     itemsPerHubPerTick: integer(source.itemsPerHubPerTick, DEFAULT_SHIP_LIQUIDITY.itemsPerHubPerTick, 1, 5000),
     ordersPerSide: integer(source.ordersPerSide, DEFAULT_SHIP_LIQUIDITY.ordersPerSide, 1, 10),
+    quantityPerOrder: integer(source.quantityPerOrder, DEFAULT_SHIP_LIQUIDITY.quantityPerOrder, 1, 1000000),
     targetOrderVolumeM3: Math.max(
       0.01,
       number(source.targetOrderVolumeM3, DEFAULT_SHIP_LIQUIDITY.targetOrderVolumeM3),
