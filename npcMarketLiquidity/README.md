@@ -17,17 +17,19 @@ player’s inventory or wallet.
 When `fuelSeeds` is enabled, the mod also creates one 100,000-unit sell order
 for each configured isotope at each configured hub. The price uses that hub's
 current average market reference or the bundled manifest fallback. These
-dedicated seed orders are idempotent, are not continuously replenished after
-being sold, and can be repaired after the market daemon restarts.
+dedicated seed orders are checked each normal tick and recreated when no open
+mod fuel order remains, including after consumption or a market rebuild.
 
 ## Requirements
 
 - EveJS `0.12.9`
-- Standard market server order RPCs (`idempotent-fill-v1`)
+- Native market server RPC capabilities `idempotent-fill-v1` and
+  `npc-passive-orders-v1` (verified before each scheduler pass)
 - EveJS Launcher `1.0.69` or newer
 
 Native and Docker backends are supported when the market daemon exposes the
-standard order RPCs.
+required RPC capabilities. If either is missing, the mod stops seeding with a
+clear error; it never falls back to creating player-labelled NPC orders.
 
 ## Installation
 
@@ -36,12 +38,35 @@ it in the Launcher, and restart the Game server. The mod checks the market
 server compatibility when its first tick runs. Docker is supported as long as
 the market daemon exposes the standard order RPCs.
 
-The mod is self-contained and does not require rebuilding the native market
-server. It places its managed orders through the existing standard order RPC
-as owner ID `0`, then its loader bridge marks only those known order IDs as
-synthetic NPC orders while EveJS processes market fills. This keeps the
-native market-server source and executable unchanged while preserving the
-NPC wallet and inventory behavior in the Node market service.
+Version `0.6.3` places all managed orders through the existing `PlaceOrder` RPC
+with owner ID `0` and **persisted source `npc-passive`**. EveJS already handles
+this source through its synthetic fill path, without pre-existing player
+seller escrow. No market-server source edits, ownership-enriched book rows,
+or purchase-time loader bridge are needed.
+
+### Upgrading from the legacy player-order bridge
+
+This release intentionally does **not** migrate or relabel old orders. For a
+clean V2 rebuild deployment:
+
+1. Stop both the Game server and market daemon. Back up the active market
+   database and the complete GameStore before rebuilding.
+2. Rebuild/replace the **active** database using market-seederv2. This resets
+   **all market orders, including genuine player orders**, not only this mod's
+   orders. GameStore escrow is separate; replacing the market database does
+   not by itself refund or reconcile genuine player listings. Do not use this
+   reset workflow on an economy whose player listings need to be preserved.
+3. Install `0.6.3` before restarting the Game server, so the old mod cannot
+   recreate broken orders. Start the market daemon first, then the Game server.
+4. Confirm the mod reports no missing-capability or legacy-order error. Check
+   a newly created order has source `npc-passive`, then test a purchase and a
+   sale to an NPC bid (wallet, inventory, and remaining order quantity).
+
+The mod's saved `state.json` can remain: live orders determine stock, and old
+saved fuel IDs do not prevent reseeding. Ship/general catalog cursors continue
+their hourly rotation. If open owner-0 `player` orders remain, the mod refuses
+the pass before mutating orders, indicating that the active database was not
+cleanly replaced. Restart the Game process fully to unload the old bridge.
 
 ## Configuration
 
@@ -140,16 +165,17 @@ request is logged and does not roll back or prevent market orders.
 
 ## Market behavior
 
-The market server stores orders from this mod through its normal `player`
-order path using reserved owner ID `0`. The mod bridge exposes those reserved
-owner-0 orders to EveJS as `npc-passive` orders, so they remain visible
-alongside player and seeded orders, use the native synthetic fill path, and
-are replenished after consumption—even after a restart or duplicate cleanup.
-The bridge verifies ownership using the daemon's current `GetOwnerOrders`
-response because public order-book rows do not contain ownership fields.
-This adds one ownership RPC per order-book request and avoids trusting saved
-order IDs after a database rebuild. The seeder also unpacks the daemon's
-nested `row` fields when checking existing stock.
+The market server stores this mod's fuel, ship, resource, general, and
+temporary buyback orders as `npc-passive`, with reserved owner ID `0`. The
+stored source survives restarts and is returned unchanged in market books.
+Both NPC sells and NPC bids use EveJS's existing synthetic settlement path.
+Real player orders keep their normal escrow checks.
+
+The scheduler reads `GetOwnerOrders` once per pass and unpacks its nested
+`row` fields to check existing stock. It only manages native owner-0 NPC
+orders. There is no extra ownership RPC or source rewriting when a player
+opens the market or buys an item; saved order IDs are never used to grant
+synthetic settlement to an order after a database rebuild.
 Existing seeded liquidity and player orders are left in place. On each
 configured pass, the optional buyback sweep
 evaluates standing player sell orders. A successful buy consumes the escrowed
@@ -158,6 +184,32 @@ same durable market-fill path used by normal market transactions.
 
 If the market database is rebuilt with V2, the passive orders disappear with
 the replaced database and are recreated gradually on later scheduler passes.
+
+## Validation
+
+From the EveJS root:
+
+```powershell
+node mods/npcMarketLiquidity/test/validate.js
+node mods/npcMarketLiquidity/test/marketCompatibility.js
+# Optional: Node with node:sqlite support and an existing market executable.
+node mods/npcMarketLiquidity/test/nativeMarketSmoke.js
+```
+
+The regression test uses in-memory RPC fixtures, including all five fuel hubs,
+T1 mining-ship bids/asks, duplicate prevention after reload, saved state from a
+replaced database, the temporary buyback bid, and unsupported daemon rejection.
+It does not connect to or change the live market.
+
+The optional native smoke test launches the existing release market executable
+against a disposable SQLite fixture on temporary loopback ports. It runs the
+actual EveJS purchase matching and fill saga with in-memory game-side wallet,
+inventory, and escrow dependencies. It verifies a mod fuel order is stored as
+`npc-passive`, buying delivers items/debits the wallet/decrements real daemon
+stock, an NPC bid is visible, and a player-labelled order without escrow still
+fails. It shuts down its daemon and removes only its disposable fixture. An
+alternate existing executable can be supplied as the first argument. This is
+not an in-client test against the deployed VPS.
 
 ## Removal
 

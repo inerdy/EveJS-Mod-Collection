@@ -46,7 +46,7 @@ assert.equal(normalizeState({fuelDuplicateCleanupCompleted: true}).fuelDuplicate
 assert.equal(normalizeState({}).shipDuplicateCleanupCompleted, false);
 assert.equal(normalizeState({shipDuplicateCleanupCompleted: true}).shipDuplicateCleanupCompleted, true);
 const marketManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "evejs-launcher.mod.json"), "utf8"));
-assert.equal(marketManifest.version, "0.6.1");
+assert.equal(marketManifest.version, "0.6.3");
 assert.equal(config.priceManifestEnabled, true);
 assert.equal(config.allowCalculatedManifestPrices, true);
 assert.equal(config.priceManifestPath.endsWith(path.join("mods", "npcMarketLiquidity", "data", "price-manifest.json")), true);
@@ -122,16 +122,5 @@ assert.equal(realOnlyManifest.calculatedEntries, 0);
 assert.ok(realOnlyManifest.entries.size < manifest.entries.size);
 assert.equal(discord.isConfigured("https://discord.com/api/webhooks/example/token"), true);
 assert.equal(discord.isConfigured("https://example.com/webhook"), false);
-service._testing.registerManagedOrderID("42");
-const bridgedBook = service._testing.rewriteLegacyOrderSources({
-  sells: [{order_id: "42", source: "player"}],
-  buys: [{order_id: "43", source: "player"}],
-});
-assert.equal(bridgedBook.sells[0].source, "npc-passive");
-assert.equal(bridgedBook.buys[0].source, "player");
-const bridgedReservedOwnerBook = service._testing.rewriteLegacyOrderSources({
-  sells: [{order_id: "44", owner_id: 0, is_corp: false, source: "player"}],
-});
-assert.equal(bridgedReservedOwnerBook.sells[0].source, "npc-passive");
 
 console.log("npcMarketLiquidity validation passed");

@@ -27,15 +27,14 @@ const {isConfigured: isDiscordConfigured, sendWebhook} = require(path.join(__dir
 
 const MOD_ID = "npcMarketLiquidity";
 const SOURCE = "npc-passive";
-const LEGACY_DAEMON_SOURCE = "player";
-const MANAGED_ORDER_SOURCES = new Set([LEGACY_DAEMON_SOURCE, SOURCE]);
+const PLAYER_SOURCE = "player";
 const NPC_OWNER_ID = 0;
-const REQUIRED_DAEMON_CAPABILITY = "idempotent-fill-v1";
+const REQUIRED_DAEMON_CAPABILITIES = ["idempotent-fill-v1", "npc-passive-orders-v1"];
 const T1_MINING_SHIP_TYPE_IDS = new Set([17476, 17478, 17480, 32880]);
 const managedOrderIDs = new Set();
 
 function isManagedOrderSource(value) {
-  return MANAGED_ORDER_SOURCES.has(String(value || "").toLowerCase());
+  return String(value || "").toLowerCase() === SOURCE;
 }
 
 function positive(value, fallback = 0) {
@@ -65,31 +64,6 @@ function replaceManagedOrderIDs(orders) {
     registerManagedOrderID(order && order.order_id);
   }
   return [...managedOrderIDs];
-}
-
-function rewriteLegacyOrderSources(result) {
-  if (!result || typeof result !== "object") return result;
-  const rewrite = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
-    if (
-      row &&
-      (
-        managedOrderIDs.has(normalizedOrderID(row.order_id)) ||
-        (
-          Number(row.owner_id) === NPC_OWNER_ID &&
-          row.is_corp !== true
-        )
-      ) &&
-      String(row.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE
-    ) {
-      return {...row, source: SOURCE};
-    }
-    return row;
-  });
-  return {
-    ...result,
-    sells: rewrite(result.sells),
-    buys: rewrite(result.buys),
-  };
 }
 
 function eligibleItem(item) {
@@ -157,7 +131,7 @@ function isPlayerSellOrder(order) {
     order &&
     normalizedOrderIDForComparison(order.order_id) &&
     Boolean(order.bid) === false &&
-    String(order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE &&
+    String(order.source || "").toLowerCase() === PLAYER_SOURCE &&
     positive(order.vol_remaining, 0) > 0 &&
     Number(order.price) > 0,
   );
@@ -250,14 +224,10 @@ class NpcMarketLiquidityService extends BaseService {
     this._oreItems = null;
     this._resourceItems = null;
     this._priceManifest = null;
-    this._daemonCapabilityVerified = false;
     this._daemonStartedAt = "";
     this._marketRestarted = false;
     this._buybackHookWarningLogged = false;
     this._lastStatus = {state: "created", created: 0, replaced: 0, skipped: 0};
-    for (const orderID of Array.isArray(this._state.managedOrderIDs) ? this._state.managedOrderIDs : []) {
-      registerManagedOrderID(orderID);
-    }
     if (this._config.enabled && options.autoStart !== false) this._start();
   }
 
@@ -302,7 +272,7 @@ class NpcMarketLiquidityService extends BaseService {
       enabled: this._config.enabled,
       dryRun: this._config.dryRun,
       playerSellBuyback: this._config.playerSellBuyback,
-      compatibilityMode: "legacy-player-order-bridge",
+      compatibilityMode: "native-npc-passive",
       discordWebhookConfigured: isDiscordConfigured(this._config.discordWebhookUrl),
       managedOrderCount: managedOrderIDs.size,
       lastTickAtMs: this._state.lastTickAtMs,
@@ -415,12 +385,17 @@ class NpcMarketLiquidityService extends BaseService {
 
   async _listExistingOrders() {
     const result = await marketDaemonClient.call("GetOwnerOrders", {owner_id: 0, is_corp: false});
-    const orders = normalizeOwnerOrders(result).filter((order) => (
-        Number(order && order.owner_id) === NPC_OWNER_ID &&
-        order && order.is_corp !== true &&
-        isManagedOrderSource(order.source) &&
-        String(order.state || "open").toLowerCase() === "open"
-      ));
+    const owned = normalizeOwnerOrders(result).filter((order) => (
+      order && (order.owner_id === NPC_OWNER_ID || order.owner_id === String(NPC_OWNER_ID)) &&
+      order.is_corp === false && String(order.state).toLowerCase() === "open"
+    ));
+    if (owned.some((order) => order.source === PLAYER_SOURCE)) {
+      throw new Error(
+        "legacy owner-0 player orders remain in the market database; " +
+        "this mod requires a clean V2 rebuild before seeding and does not migrate legacy orders",
+      );
+    }
+    const orders = owned.filter((order) => isManagedOrderSource(order.source));
     replaceManagedOrderIDs(orders);
     this._state.managedOrderIDs = [...managedOrderIDs];
     return orders;
@@ -546,9 +521,11 @@ class NpcMarketLiquidityService extends BaseService {
     const capabilities = Array.isArray(health && health.capabilities)
       ? health.capabilities.map(String)
       : [];
-    if (!this._daemonCapabilityVerified && !capabilities.includes(REQUIRED_DAEMON_CAPABILITY)) {
+    const missing = REQUIRED_DAEMON_CAPABILITIES.filter((capability) => !capabilities.includes(capability));
+    if (missing.length > 0) {
       throw new Error(
-        `market daemon does not expose the standard ${REQUIRED_DAEMON_CAPABILITY} compatibility API`,
+        `market daemon is missing required capabilities: ${missing.join(", ")}; ` +
+        "NPC seeding stopped (no player-order fallback)",
       );
     }
     const nextStartedAt = String(health && health.started_at || "");
@@ -562,7 +539,6 @@ class NpcMarketLiquidityService extends BaseService {
       );
     }
     this._daemonStartedAt = nextStartedAt;
-    this._daemonCapabilityVerified = true;
   }
 
   _fuelSeedOrders(stationID, itemTypeID, existing) {
@@ -648,7 +624,7 @@ class NpcMarketLiquidityService extends BaseService {
         duration_days: this._config.durationDays,
         range_value: 32767,
         bid: false,
-        source: LEGACY_DAEMON_SOURCE,
+        source: SOURCE,
       });
       const orderID = registerManagedOrderID(placed && placed.order_id);
       existing.push({
@@ -656,7 +632,7 @@ class NpcMarketLiquidityService extends BaseService {
         owner_id: NPC_OWNER_ID,
         is_corp: false,
         state: "open",
-        source: LEGACY_DAEMON_SOURCE,
+        source: SOURCE,
         station_id: station.stationID,
         type_id: item.typeID,
         bid: false,
@@ -735,9 +711,9 @@ class NpcMarketLiquidityService extends BaseService {
       duration_days: this._config.durationDays,
       range_value: 32767,
       bid: side === "buy",
-      // Older daemons only expose the normal player-order source. The loader
-      // bridge rewrites managed owner-0 orders to SOURCE for EveJS fill logic.
-      source: LEGACY_DAEMON_SOURCE,
+      // Persist the native source so EveJS uses the synthetic fill path even
+      // after restarts, without rewriting order books or requiring seller escrow.
+      source: SOURCE,
     });
     registerManagedOrderID(placed && placed.order_id);
     existing.push({
@@ -745,7 +721,7 @@ class NpcMarketLiquidityService extends BaseService {
       owner_id: NPC_OWNER_ID,
       is_corp: false,
       state: "open",
-      source: LEGACY_DAEMON_SOURCE,
+      source: SOURCE,
       station_id: station.stationID,
       type_id: item.typeID,
       bid: side === "buy",
@@ -819,7 +795,7 @@ class NpcMarketLiquidityService extends BaseService {
       })
       : null;
     const competingPlayerBuy = (Array.isArray(book && book.buys) ? book.buys : []).some((order) => (
-      String(order && order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE &&
+      String(order && order.source || "").toLowerCase() === PLAYER_SOURCE &&
       Boolean(order && order.bid) === true &&
       positive(order && order.vol_remaining, 0) > 0 &&
       Number(order && order.price) + 0.0001 >= price &&
@@ -848,7 +824,7 @@ class NpcMarketLiquidityService extends BaseService {
         duration_days: 1,
         range_value: 32767,
         bid: true,
-        source: LEGACY_DAEMON_SOURCE,
+        source: SOURCE,
       });
       temporaryBuyOrderID = registerManagedOrderID(placed && placed.order_id);
       if (!temporaryBuyOrderID) {
@@ -1282,5 +1258,4 @@ module.exports._testing = {
   isPlayerSellOrder,
   resourceOrderOverrides,
   registerManagedOrderID,
-  rewriteLegacyOrderSources,
 };
