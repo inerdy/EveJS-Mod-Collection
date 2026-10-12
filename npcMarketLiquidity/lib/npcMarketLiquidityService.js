@@ -457,17 +457,12 @@ class NpcMarketLiquidityService extends BaseService {
       return result;
     }
 
-    const previous = this._state.fuelSeedByStation[seedKey] ||
-      (Number(configured.typeID) === 17887 ? this._state.fuelSeedByStation[stationKey] : null);
-    const repairMissingSeed = Boolean(
-      previous &&
-      configured.repairAfterMarketRestart &&
-      this._marketRestarted,
-    );
-    if (previous && !repairMissingSeed) {
-      result.skipped = 1;
-      return result;
-    }
+    // The state file is only a record of what we seeded previously. It is not
+    // authoritative: the market database may have been rebuilt, an order may
+    // have expired, or an administrator may have removed an order manually.
+    // Once the live-order check above finds no open seed, always reconcile it
+    // on this tick instead of waiting for a market-daemon restart or trusting
+    // the old state entry.
 
     try {
       const summary = await marketDaemonClient.call("GetStationAsks", {

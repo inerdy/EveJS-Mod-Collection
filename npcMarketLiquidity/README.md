@@ -96,7 +96,9 @@ stopped, then restart the Game server.
 - `allowCalculatedManifestPrices`: allows the manifest's calculated entries
   to seed items that have no live CCP or Jita reference. This is enabled by
   default so items without existing orders can still be populated.
-- `fuelSeeds`: controls the one-time isotope seeds. The default list contains
+- `fuelSeeds`: controls the isotope seed orders. Each normal liquidity tick
+  verifies that the configured orders still exist and recreates any missing
+  order. The default list contains
   Hydrogen `17889`, Helium `16274`, Nitrogen `17888`, and Oxygen `17887`, with
   100,000 sell units per configured hub and repair-after-restart enabled. Each
   entry has its own `hubStationIDs` list and uses that station's current market
