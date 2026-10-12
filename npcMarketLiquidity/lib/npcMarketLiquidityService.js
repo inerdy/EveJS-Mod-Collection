@@ -12,6 +12,7 @@ const {getStationRecord} = require(serverPath("services", "_shared", "stationSta
 const {marketDaemonClient} = require(serverPath("services", "market", "marketDaemonClient"));
 const {isBidOrderInRange} = require(serverPath("services", "market", "marketTopology"));
 const {loadConfig} = require(path.join(__dirname, "config"));
+const {normalizeOwnerOrders} = require("./marketCompatibility");
 const {createStateStore, normalizeState} = require(path.join(__dirname, "state"));
 const {
   buildAveragePrice,
@@ -27,10 +28,15 @@ const {isConfigured: isDiscordConfigured, sendWebhook} = require(path.join(__dir
 const MOD_ID = "npcMarketLiquidity";
 const SOURCE = "npc-passive";
 const LEGACY_DAEMON_SOURCE = "player";
+const MANAGED_ORDER_SOURCES = new Set([LEGACY_DAEMON_SOURCE, SOURCE]);
 const NPC_OWNER_ID = 0;
 const REQUIRED_DAEMON_CAPABILITY = "idempotent-fill-v1";
 const T1_MINING_SHIP_TYPE_IDS = new Set([17476, 17478, 17480, 32880]);
 const managedOrderIDs = new Set();
+
+function isManagedOrderSource(value) {
+  return MANAGED_ORDER_SOURCES.has(String(value || "").toLowerCase());
+}
 
 function positive(value, fallback = 0) {
   const number = Math.trunc(Number(value) || 0);
@@ -409,14 +415,12 @@ class NpcMarketLiquidityService extends BaseService {
 
   async _listExistingOrders() {
     const result = await marketDaemonClient.call("GetOwnerOrders", {owner_id: 0, is_corp: false});
-    const orders = Array.isArray(result)
-      ? result.filter((order) => (
+    const orders = normalizeOwnerOrders(result).filter((order) => (
         Number(order && order.owner_id) === NPC_OWNER_ID &&
         order && order.is_corp !== true &&
-        String(order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE &&
+        isManagedOrderSource(order.source) &&
         String(order.state || "open").toLowerCase() === "open"
-      ))
-      : [];
+      ));
     replaceManagedOrderIDs(orders);
     this._state.managedOrderIDs = [...managedOrderIDs];
     return orders;
@@ -437,7 +441,7 @@ class NpcMarketLiquidityService extends BaseService {
         !order ||
         Number(order.owner_id) !== NPC_OWNER_ID ||
         order.is_corp === true ||
-        String(order.source || "").toLowerCase() !== LEGACY_DAEMON_SOURCE ||
+        !isManagedOrderSource(order.source) ||
         String(order.state || "open").toLowerCase() !== "open" ||
         Boolean(order.bid) ||
         !hubIDs.has(Number(order.station_id)) ||
@@ -494,7 +498,7 @@ class NpcMarketLiquidityService extends BaseService {
         !order ||
         Number(order.owner_id) !== NPC_OWNER_ID ||
         order.is_corp === true ||
-        String(order.source || "").toLowerCase() !== LEGACY_DAEMON_SOURCE ||
+        !isManagedOrderSource(order.source) ||
         String(order.state || "open").toLowerCase() !== "open" ||
         !hubIDs.has(Number(order.station_id)) ||
         !shipTypeIDs.has(Number(order.type_id))
@@ -567,7 +571,7 @@ class NpcMarketLiquidityService extends BaseService {
       Number(order.station_id) === Number(stationID) &&
       Number(order.type_id) === Number(itemTypeID) &&
       Boolean(order.bid) === false &&
-      String(order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE
+      isManagedOrderSource(order.source)
     ));
   }
 
@@ -688,7 +692,7 @@ class NpcMarketLiquidityService extends BaseService {
         Number(order.station_id) === station.stationID &&
         Number(order.type_id) === item.typeID &&
         Boolean(order.bid) === (side === "buy") &&
-        String(order.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE
+        isManagedOrderSource(order.source)
       ))
       .sort((left, right) => Number(left.order_id) - Number(right.order_id))[slot];
     let replaced = false;

@@ -10,7 +10,7 @@ const INSTALLED = Symbol.for("evejs.npcMarketLiquidity.loaderInstalled");
 const MARKET_BRIDGE_INSTALLED = Symbol.for("evejs.npcMarketLiquidity.marketBridgeInstalled");
 
 function installLegacyMarketCompatibilityBridge() {
-  const Service = require(path.join(__dirname, "lib", "npcMarketLiquidityService"));
+  const {createCompatibleCall} = require("./lib/marketCompatibility");
   const marketDaemonClient = require(path.join(
     __dirname,
     "..",
@@ -23,12 +23,7 @@ function installLegacyMarketCompatibilityBridge() {
   )).marketDaemonClient;
   if (marketDaemonClient[MARKET_BRIDGE_INSTALLED]) return;
   const originalCall = marketDaemonClient.call.bind(marketDaemonClient);
-  marketDaemonClient.call = async function legacyCompatibleCall(method, params, options) {
-    const result = await originalCall(method, params, options);
-    return method === "GetOrders"
-      ? Service._testing.rewriteLegacyOrderSources(result)
-      : result;
-  };
+  marketDaemonClient.call = createCompatibleCall(originalCall);
   marketDaemonClient[MARKET_BRIDGE_INSTALLED] = true;
 }
 

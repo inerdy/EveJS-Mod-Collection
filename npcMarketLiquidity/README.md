@@ -145,7 +145,13 @@ order path using reserved owner ID `0`. The mod bridge exposes those reserved
 owner-0 orders to EveJS as `npc-passive` orders, so they remain visible
 alongside player and seeded orders, use the native synthetic fill path, and
 are replenished after consumption—even after a restart or duplicate cleanup.
-Existing seeded liquidity and player orders are left in place. On each configured pass, the optional buyback sweep
+The bridge verifies ownership using the daemon's current `GetOwnerOrders`
+response because public order-book rows do not contain ownership fields.
+This adds one ownership RPC per order-book request and avoids trusting saved
+order IDs after a database rebuild. The seeder also unpacks the daemon's
+nested `row` fields when checking existing stock.
+Existing seeded liquidity and player orders are left in place. On each
+configured pass, the optional buyback sweep
 evaluates standing player sell orders. A successful buy consumes the escrowed
 items, credits the seller's wallet, and reduces the player order through the
 same durable market-fill path used by normal market transactions.
