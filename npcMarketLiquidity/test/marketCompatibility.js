@@ -32,7 +32,16 @@ async function main() {
       return {order_id};
     }
     if (method === "GetOrder") return orders.get(String(params.order_id));
-    if (method === "GetOrders") return {sells: [], buys: []};
+    if (method === "GetOrders") {
+      const matches = [...orders.values()].filter((row) => (
+        String(row.state || "open").toLowerCase() === "open" &&
+        (!params || !params.type_id || Number(row.type_id) === Number(params.type_id))
+      ));
+      return {
+        sells: matches.filter((row) => !row.bid),
+        buys: matches.filter((row) => Boolean(row.bid)),
+      };
+    }
     if (method === "CancelOrder") {
       orders.get(String(params.order_id)).state = "cancelled";
       return {};
@@ -60,9 +69,9 @@ async function main() {
   const service = new Service({autoStart: false, config,
     stateStore: {load: () => staleState, save: () => {}}});
 
-  // Recheck both capabilities, including after a previously successful tick.
+  // Recheck the required capability; native NPC order support is optional.
   await service._ensureDaemonSupport();
-  for (const missing of ["npc-passive-orders-v1", "idempotent-fill-v1"]) {
+  for (const missing of ["idempotent-fill-v1"]) {
     capabilities = ["idempotent-fill-v1", "npc-passive-orders-v1"].filter((c) => c !== missing);
     calls.length = 0;
     const status = await service.tick();
@@ -70,6 +79,9 @@ async function main() {
     assert.match(status.error, new RegExp(missing));
     assert.deepEqual(calls.map((call) => call.method), ["Health"]);
   }
+  capabilities = ["idempotent-fill-v1"];
+  await service._ensureDaemonSupport();
+  assert.equal(service.getStatus().compatibilityMode, "cached-managed-order-bridge");
   capabilities = ["idempotent-fill-v1", "npc-passive-orders-v1"];
   await service._ensureDaemonSupport();
   const existing = await service._listExistingOrders();
@@ -144,15 +156,23 @@ async function main() {
   assert.equal((await service._listExistingOrders()).some((row) => row.order_id === "62510"), false,
     "reused IDs never adopt genuine player orders");
 
-  // Refuse an unreplaced database; no destructive legacy repair is attempted.
-  orders.set("legacy", {...playerOrder, order_id: "77", owner_id: 0});
-  calls.length = 0;
-  const status = await service.tick();
-  assert.match(status.error, /clean V2 rebuild/);
-  assert.deepEqual(calls.map((call) => call.method), ["Health", "GetOwnerOrders"]);
+  // Older-daemon owner-0 player orders are adopted into the tracked snapshot.
+  capabilities = ["idempotent-fill-v1"];
+  await service._ensureDaemonSupport();
+  const fallbackPlacement = await service._placeOrder(
+    {stationID: 60003760},
+    {typeID: 1231, name: "fallback item", volume: 1},
+    "sell", 0, reference, [], {quantityPerOrder: 10},
+  );
+  assert.equal(fallbackPlacement.created, true);
+  assert.equal([...orders.values()].at(-1).source, "player");
+  orders.set("77", {...playerOrder, order_id: "77", owner_id: 0});
+  const legacyManaged = await service._listExistingOrders();
+  assert(legacyManaged.some((row) => row.order_id === "77"));
+  assert.equal(service.getStatus().managedOrderCount, legacyManaged.length);
   assert.throws(() => normalizeOwnerOrders(null), /Invalid GetOwnerOrders/);
 
-  // The real loader must not wrap the RPC client or add per-book owner scans.
+  // The loader bridges only cached managed IDs and adds no per-book owner scan.
   const managerPath = serverPath("services/serviceManager.js");
   class Manager {
     lookup() { return this.service; }
@@ -164,15 +184,17 @@ async function main() {
     ...imports, "node:module": fakeModule,
     [path.resolve(__dirname, "../lib/npcMarketLiquidityService.js")]: Service,
   });
-  assert.equal(loader.version, "0.6.3");
+  assert.equal(loader.version, "0.6.4");
   const HookedManager = fakeModule._load(managerPath);
   assert.equal(Object.getPrototypeOf(HookedManager), Manager);
-  assert.equal(marketDaemonClient.call, originalCall);
+  assert.notEqual(marketDaemonClient.call, originalCall);
   calls.length = 0;
-  await marketDaemonClient.call("GetOrders", {});
+  const book = await marketDaemonClient.call("GetOrders", {type_id: 1230});
   assert.deepEqual(calls.map((call) => call.method), ["GetOrders"]);
-  assert.equal(service.getStatus().compatibilityMode, "native-npc-passive");
-  console.log("Native NPC regressions passed: capabilities, five hubs, ships, buyback, rebuild, reload, and unwrapped RPC");
+  assert.equal(book.sells.find((row) => row.order_id === "77").source, "npc-passive");
+  assert.equal(book.sells.find((row) => row.order_id === "62510").source, "player");
+  assert.equal(service.getStatus().compatibilityMode, "cached-managed-order-bridge");
+  console.log("NPC market regressions passed: native/fallback capabilities, tracked-order bridge, hubs, ships, buyback, and reload");
 }
 
 main().catch((error) => {console.error(error); process.exitCode = 1;});

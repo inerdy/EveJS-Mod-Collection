@@ -46,7 +46,7 @@ assert.equal(normalizeState({fuelDuplicateCleanupCompleted: true}).fuelDuplicate
 assert.equal(normalizeState({}).shipDuplicateCleanupCompleted, false);
 assert.equal(normalizeState({shipDuplicateCleanupCompleted: true}).shipDuplicateCleanupCompleted, true);
 const marketManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "evejs-launcher.mod.json"), "utf8"));
-assert.equal(marketManifest.version, "0.6.3");
+assert.equal(marketManifest.version, "0.6.4");
 assert.equal(config.priceManifestEnabled, true);
 assert.equal(config.allowCalculatedManifestPrices, true);
 assert.equal(config.priceManifestPath.endsWith(path.join("mods", "npcMarketLiquidity", "data", "price-manifest.json")), true);

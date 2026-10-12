@@ -23,13 +23,12 @@ mod fuel order remains, including after consumption or a market rebuild.
 ## Requirements
 
 - EveJS `0.12.9`
-- Native market server RPC capabilities `idempotent-fill-v1` and
-  `npc-passive-orders-v1` (verified before each scheduler pass)
+- Market daemon RPC capability `idempotent-fill-v1`
 - EveJS Launcher `1.0.69` or newer
 
-Native and Docker backends are supported when the market daemon exposes the
-required RPC capabilities. If either is missing, the mod stops seeding with a
-clear error; it never falls back to creating player-labelled NPC orders.
+Native and Docker backends are supported. The mod detects whether the daemon
+supports native `npc-passive-orders-v1` orders and automatically uses the
+compatible order path when it does not. Only `idempotent-fill-v1` is required.
 
 ## Installation
 
@@ -38,35 +37,15 @@ it in the Launcher, and restart the Game server. The mod checks the market
 server compatibility when its first tick runs. Docker is supported as long as
 the market daemon exposes the standard order RPCs.
 
-Version `0.6.3` places all managed orders through the existing `PlaceOrder` RPC
-with owner ID `0` and **persisted source `npc-passive`**. EveJS already handles
-this source through its synthetic fill path, without pre-existing player
-seller escrow. No market-server source edits, ownership-enriched book rows,
-or purchase-time loader bridge are needed.
-
-### Upgrading from the legacy player-order bridge
-
-This release intentionally does **not** migrate or relabel old orders. For a
-clean V2 rebuild deployment:
-
-1. Stop both the Game server and market daemon. Back up the active market
-   database and the complete GameStore before rebuilding.
-2. Rebuild/replace the **active** database using market-seederv2. This resets
-   **all market orders, including genuine player orders**, not only this mod's
-   orders. GameStore escrow is separate; replacing the market database does
-   not by itself refund or reconcile genuine player listings. Do not use this
-   reset workflow on an economy whose player listings need to be preserved.
-3. Install `0.6.3` before restarting the Game server, so the old mod cannot
-   recreate broken orders. Start the market daemon first, then the Game server.
-4. Confirm the mod reports no missing-capability or legacy-order error. Check
-   a newly created order has source `npc-passive`, then test a purchase and a
-   sale to an NPC bid (wallet, inventory, and remaining order quantity).
-
-The mod's saved `state.json` can remain: live orders determine stock, and old
-saved fuel IDs do not prevent reseeding. Ship/general catalog cursors continue
-their hourly rotation. If open owner-0 `player` orders remain, the mod refuses
-the pass before mutating orders, indicating that the active database was not
-cleanly replaced. Restart the Game process fully to unload the old bridge.
+On daemons advertising `npc-passive-orders-v1`, managed orders are stored with
+source `npc-passive` and use EveJS's native synthetic-fill path. Older daemons
+store these orders with source `player`; the mod's compatibility bridge marks
+only its tracked owner-0 order IDs as `npc-passive` in market-book responses.
+The bridge gets its ID snapshot at startup and refreshes it once per scheduled
+liquidity pass; it does not make an ownership RPC when someone opens a market
+or buys an item. Genuine player orders are not rewritten. No machine-specific
+path, market-server source edit, or market-seed rebuild is needed for this
+compatibility mode.
 
 ## Configuration
 
@@ -165,22 +144,15 @@ request is logged and does not roll back or prevent market orders.
 
 ## Market behavior
 
-The market server stores this mod's fuel, ship, resource, general, and
-temporary buyback orders as `npc-passive`, with reserved owner ID `0`. The
-stored source survives restarts and is returned unchanged in market books.
-Both NPC sells and NPC bids use EveJS's existing synthetic settlement path.
-Real player orders keep their normal escrow checks.
-
-The scheduler reads `GetOwnerOrders` once per pass and unpacks its nested
-`row` fields to check existing stock. It only manages native owner-0 NPC
-orders. There is no extra ownership RPC or source rewriting when a player
-opens the market or buys an item; saved order IDs are never used to grant
-synthetic settlement to an order after a database rebuild.
-Existing seeded liquidity and player orders are left in place. On each
-configured pass, the optional buyback sweep
-evaluates standing player sell orders. A successful buy consumes the escrowed
-items, credits the seller's wallet, and reduces the player order through the
-same durable market-fill path used by normal market transactions.
+The scheduler reads `GetOwnerOrders` at startup and once per pass, unpacking
+its nested `row` fields to check existing stock. On older daemons, only the
+tracked owner-0 orders from this mod are presented to EveJS as `npc-passive`;
+real player order IDs remain unchanged and retain their normal escrow checks.
+Saved IDs are not trusted across a database rebuild. On each configured pass,
+the optional buyback sweep evaluates standing player sell orders. A successful
+buy consumes the escrowed items, credits the seller's wallet, and reduces the
+player order through the same durable market-fill path used by normal market
+transactions.
 
 If the market database is rebuilt with V2, the passive orders disappear with
 the replaced database and are recreated gradually on later scheduler passes.
