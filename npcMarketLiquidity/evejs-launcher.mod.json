@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "npcmarketliquidity",
   "displayName": "NPC Market Liquidity",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Adds configurable synthetic NPC market liquidity, larger resource orders, and probabilistic player sell-order buyback at major trade hubs.",
   "kind": "loader",
   "supportedBackends": ["native", "docker"],
