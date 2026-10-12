@@ -74,6 +74,10 @@ stopped, then restart the Game server.
   control the larger resource order sizing overlay. Resource settings take
   precedence over the normal target and the faster ore-buy target for matching
   type IDs.
+- `shipLiquidity` maintains a faster rotating ship catalog. It processes the
+  configured number of eligible ship types per hub per normal tick and uses
+  its own cursor, so T1/T2 and mining ships do not wait behind the full item
+  catalog.
 - `playerSellBuyback` enables the NPC's periodic buyback of standing player
   sell orders. It is enabled for ores, ice, and compressed ice by default.
   `chancePerTick` is the maximum purchase chance for an especially good price;

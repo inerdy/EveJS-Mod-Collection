@@ -86,6 +86,13 @@ const DEFAULT_RESOURCE_LIQUIDITY = Object.freeze({
   maximumOrderQuantity: 5000000,
   typeIDs: DEFAULT_RESOURCE_TYPE_IDS,
 });
+const DEFAULT_SHIP_LIQUIDITY = Object.freeze({
+  enabled: true,
+  itemsPerHubPerTick: 100,
+  ordersPerSide: 1,
+  targetOrderVolumeM3: 5000,
+  maximumOrderQuantity: 1000000,
+});
 const DEFAULT_PLAYER_SELL_BUYBACK = Object.freeze({
   enabled: true,
   resourceOnly: true,
@@ -117,6 +124,7 @@ const DEFAULT_CONFIG = Object.freeze({
   hubFuelSeed: DEFAULT_HUB_FUEL_SEED,
   oreLiquidity: DEFAULT_ORE_LIQUIDITY,
   resourceLiquidity: DEFAULT_RESOURCE_LIQUIDITY,
+  shipLiquidity: DEFAULT_SHIP_LIQUIDITY,
   playerSellBuyback: DEFAULT_PLAYER_SELL_BUYBACK,
   discordWebhookUrl: "",
   discordNotifyWhenEmpty: false,
@@ -230,6 +238,25 @@ function normalizeResourceLiquidity(value) {
   };
 }
 
+function normalizeShipLiquidity(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    enabled: source.enabled !== false,
+    itemsPerHubPerTick: integer(source.itemsPerHubPerTick, DEFAULT_SHIP_LIQUIDITY.itemsPerHubPerTick, 1, 5000),
+    ordersPerSide: integer(source.ordersPerSide, DEFAULT_SHIP_LIQUIDITY.ordersPerSide, 1, 10),
+    targetOrderVolumeM3: Math.max(
+      0.01,
+      number(source.targetOrderVolumeM3, DEFAULT_SHIP_LIQUIDITY.targetOrderVolumeM3),
+    ),
+    maximumOrderQuantity: integer(
+      source.maximumOrderQuantity,
+      DEFAULT_SHIP_LIQUIDITY.maximumOrderQuantity,
+      1,
+      1000000000,
+    ),
+  };
+}
+
 function normalizePlayerSellBuyback(value) {
   const source = value && typeof value === "object" ? value : {};
   const minimumPriceRatio = Math.max(
@@ -296,6 +323,7 @@ function normalizeConfig(value = {}) {
     ),
     oreLiquidity: normalizeOreLiquidity(source.oreLiquidity),
     resourceLiquidity: normalizeResourceLiquidity(source.resourceLiquidity),
+    shipLiquidity: normalizeShipLiquidity(source.shipLiquidity),
     playerSellBuyback: normalizePlayerSellBuyback(source.playerSellBuyback),
     discordWebhookUrl: String(source.discordWebhookUrl || "").trim(),
     discordNotifyWhenEmpty: source.discordNotifyWhenEmpty === true,
@@ -338,4 +366,5 @@ module.exports = {
   normalizeOreLiquidity,
   normalizePlayerSellBuyback,
   normalizeResourceLiquidity,
+  normalizeShipLiquidity,
 };

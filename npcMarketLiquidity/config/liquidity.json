@@ -49,6 +49,13 @@
       28627, 28628
     ]
   },
+  "shipLiquidity": {
+    "enabled": true,
+    "itemsPerHubPerTick": 100,
+    "ordersPerSide": 1,
+    "targetOrderVolumeM3": 5000,
+    "maximumOrderQuantity": 1000000
+  },
   "playerSellBuyback": {
     "enabled": true,
     "resourceOnly": true,

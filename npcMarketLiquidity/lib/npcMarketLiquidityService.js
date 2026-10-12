@@ -372,6 +372,16 @@ class NpcMarketLiquidityService extends BaseService {
     return this._resourceItems;
   }
 
+  _listShipItems() {
+    if (!this._shipItems) {
+      this._shipItems = listItemTypes()
+        .filter(eligibleItem)
+        .filter((item) => Number(item.categoryID) === 6)
+        .sort((left, right) => positive(left.typeID) - positive(right.typeID));
+    }
+    return this._shipItems;
+  }
+
   _fuelSeedItem(typeID) {
     return listItemTypes().find((item) =>
       eligibleItem(item) && positive(item.typeID) === positive(typeID)) || null;
@@ -902,7 +912,7 @@ class NpcMarketLiquidityService extends BaseService {
   }
 
   async _processHub(station, items, existing, nowMs, overrides = {}) {
-    const key = String(station.stationID);
+    const key = String(overrides.cursorKey || station.stationID);
     const priorityPass = overrides.priority === true;
     const start = priorityPass
       ? 0
@@ -910,7 +920,12 @@ class NpcMarketLiquidityService extends BaseService {
     const selected = [];
     const itemLimit = priorityPass
       ? items.length
-      : Math.min(this._config.itemsPerHubPerTick, items.length);
+      : Math.min(
+        Number.isFinite(Number(overrides.itemsPerHubPerTick))
+          ? Math.max(1, Math.trunc(Number(overrides.itemsPerHubPerTick)))
+          : this._config.itemsPerHubPerTick,
+        items.length,
+      );
     for (let offset = 0; offset < itemLimit; offset += 1) {
       selected.push(items[(start + offset) % items.length]);
     }
@@ -920,7 +935,7 @@ class NpcMarketLiquidityService extends BaseService {
       : 0;
     }
     const fuelSeedResult = {created: 0, replaced: 0, skipped: 0, failed: 0, entries: []};
-    for (const configured of priorityPass ? [] : this._config.fuelSeeds || []) {
+    for (const configured of overrides.skipFuelSeeds || priorityPass ? [] : this._config.fuelSeeds || []) {
       const seedHubs = new Set((configured.hubStationIDs || []).map(Number));
       if (configured.enabled === false || !seedHubs.has(Number(station.stationID))) continue;
       const result = await this._processFuelSeed(station, configured, existing, nowMs);
@@ -1078,6 +1093,31 @@ class NpcMarketLiquidityService extends BaseService {
       await this._cleanupDuplicateFuelOrders(existing);
       for (const stationID of this._config.hubStationIDs) {
         const station = this._loadHub(stationID);
+        if (!oreOnly && this._config.shipLiquidity.enabled) {
+          const shipResult = await this._processHub(
+            station,
+            this._listShipItems(),
+            existing,
+            nowMs,
+            {
+              mode: "ships",
+              buyback: false,
+              skipFuelSeeds: true,
+              cursorKey: `ship:${stationID}`,
+              itemsPerHubPerTick: this._config.shipLiquidity.itemsPerHubPerTick,
+              ordersPerSide: this._config.shipLiquidity.ordersPerSide,
+              targetOrderVolumeM3: this._config.shipLiquidity.targetOrderVolumeM3,
+              maximumOrderQuantity: this._config.shipLiquidity.maximumOrderQuantity,
+            },
+          );
+          hubs.push(shipResult);
+          totals.created += shipResult.created;
+          totals.replaced += shipResult.replaced;
+          totals.skipped += shipResult.skipped;
+          totals.failed += shipResult.failed;
+          totals.manifestFallback += shipResult.manifestFallback;
+          totals.calculatedFallback += shipResult.calculatedFallback;
+        }
         if (!oreOnly && this._config.resourceLiquidity.enabled) {
           const resourceResult = await this._processHub(
             station,
