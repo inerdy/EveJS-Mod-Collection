@@ -29,6 +29,7 @@ const SOURCE = "npc-passive";
 const LEGACY_DAEMON_SOURCE = "player";
 const NPC_OWNER_ID = 0;
 const REQUIRED_DAEMON_CAPABILITY = "idempotent-fill-v1";
+const T1_MINING_SHIP_TYPE_IDS = new Set([17476, 17478, 17480, 32880]);
 const managedOrderIDs = new Set();
 
 function positive(value, fallback = 0) {
@@ -378,7 +379,11 @@ class NpcMarketLiquidityService extends BaseService {
       this._shipItems = listItemTypes()
         .filter(eligibleItem)
         .filter((item) => Number(item.categoryID) === 6)
-        .sort((left, right) => positive(left.typeID) - positive(right.typeID));
+        .sort((left, right) => (
+          Number(T1_MINING_SHIP_TYPE_IDS.has(positive(right.typeID))) -
+            Number(T1_MINING_SHIP_TYPE_IDS.has(positive(left.typeID))) ||
+          positive(left.typeID) - positive(right.typeID)
+        ));
     }
     return this._shipItems;
   }

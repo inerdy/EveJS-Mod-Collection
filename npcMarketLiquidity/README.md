@@ -77,8 +77,9 @@ stopped, then restart the Game server.
 - `shipLiquidity` maintains a faster rotating ship catalog. It processes the
   configured number of eligible ship types per hub per normal tick and uses
   its own cursor, so T1/T2 and mining ships do not wait behind the full item
-  catalog. Each ship gets one buy and one sell order with the configured
-  `quantityPerOrder` stack size.
+  catalog. T1 mining ships (Venture, Procurer, Retriever, and Covetor) are
+  prioritized in that rotation. Each ship gets one buy and one sell order with
+  the configured `quantityPerOrder` stack size.
 - `playerSellBuyback` enables the NPC's periodic buyback of standing player
   sell orders. It is enabled for ores, ice, and compressed ice by default.
   `chancePerTick` is the maximum purchase chance for an especially good price;
