@@ -66,7 +66,13 @@ function rewriteLegacyOrderSources(result) {
   const rewrite = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
     if (
       row &&
-      managedOrderIDs.has(normalizedOrderID(row.order_id)) &&
+      (
+        managedOrderIDs.has(normalizedOrderID(row.order_id)) ||
+        (
+          Number(row.owner_id) === NPC_OWNER_ID &&
+          row.is_corp !== true
+        )
+      ) &&
       String(row.source || "").toLowerCase() === LEGACY_DAEMON_SOURCE
     ) {
       return {...row, source: SOURCE};

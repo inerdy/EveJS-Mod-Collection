@@ -141,11 +141,11 @@ request is logged and does not roll back or prevent market orders.
 ## Market behavior
 
 The market server stores orders from this mod through its normal `player`
-order path using reserved owner ID `0`. The mod bridge exposes only those
-managed order IDs to EveJS as `npc-passive` orders, so they remain visible
+order path using reserved owner ID `0`. The mod bridge exposes those reserved
+owner-0 orders to EveJS as `npc-passive` orders, so they remain visible
 alongside player and seeded orders, use the native synthetic fill path, and
-are replenished after consumption. Existing seeded liquidity and player
-orders are left in place. On each configured pass, the optional buyback sweep
+are replenished after consumption—even after a restart or duplicate cleanup.
+Existing seeded liquidity and player orders are left in place. On each configured pass, the optional buyback sweep
 evaluates standing player sell orders. A successful buy consumes the escrowed
 items, credits the seller's wallet, and reduces the player order through the
 same durable market-fill path used by normal market transactions.

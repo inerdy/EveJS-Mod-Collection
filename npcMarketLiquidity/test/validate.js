@@ -129,5 +129,9 @@ const bridgedBook = service._testing.rewriteLegacyOrderSources({
 });
 assert.equal(bridgedBook.sells[0].source, "npc-passive");
 assert.equal(bridgedBook.buys[0].source, "player");
+const bridgedReservedOwnerBook = service._testing.rewriteLegacyOrderSources({
+  sells: [{order_id: "44", owner_id: 0, is_corp: false, source: "player"}],
+});
+assert.equal(bridgedReservedOwnerBook.sells[0].source, "npc-passive");
 
 console.log("npcMarketLiquidity validation passed");
