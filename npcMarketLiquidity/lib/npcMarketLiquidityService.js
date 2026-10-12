@@ -400,6 +400,65 @@ class NpcMarketLiquidityService extends BaseService {
     return orders;
   }
 
+  async _cleanupDuplicateFuelOrders(existing) {
+    if (this._state.fuelDuplicateCleanupCompleted) {
+      return {cancelled: 0, failed: 0, skipped: true};
+    }
+
+    const hubIDs = new Set((this._config.hubStationIDs || []).map(Number));
+    const fuelTypeIDs = new Set((this._config.fuelSeeds || [])
+      .filter((seed) => seed && seed.enabled !== false)
+      .map((seed) => Number(seed.typeID)));
+    const groups = new Map();
+    for (const order of existing) {
+      if (
+        !order ||
+        Number(order.owner_id) !== NPC_OWNER_ID ||
+        order.is_corp === true ||
+        String(order.source || "").toLowerCase() !== LEGACY_DAEMON_SOURCE ||
+        String(order.state || "open").toLowerCase() !== "open" ||
+        Boolean(order.bid) ||
+        !hubIDs.has(Number(order.station_id)) ||
+        !fuelTypeIDs.has(Number(order.type_id))
+      ) continue;
+      const key = `${Number(order.station_id)}:${Number(order.type_id)}`;
+      const rows = groups.get(key) || [];
+      rows.push(order);
+      groups.set(key, rows);
+    }
+
+    let cancelled = 0;
+    let failed = 0;
+    for (const [key, rows] of groups) {
+      rows.sort((left, right) => Number(left.order_id) - Number(right.order_id));
+      for (const duplicate of rows.slice(1)) {
+        try {
+          await marketDaemonClient.call("CancelOrder", {order_id: duplicate.order_id});
+          const index = existing.indexOf(duplicate);
+          if (index >= 0) existing.splice(index, 1);
+          unregisterManagedOrderID(duplicate.order_id);
+          cancelled += 1;
+        } catch (error) {
+          failed += 1;
+          log.warn(
+            `[${MOD_ID}] duplicate fuel cleanup failed order=${duplicate.order_id} ` +
+            `key=${key}: ${String(error && error.message || error)}`,
+          );
+        }
+      }
+    }
+
+    if (failed === 0) {
+      this._state.fuelDuplicateCleanupCompleted = true;
+    }
+    if (cancelled > 0 || failed > 0) {
+      log.info(
+        `[${MOD_ID}] duplicate fuel cleanup cancelled=${cancelled} failed=${failed}`,
+      );
+    }
+    return {cancelled, failed, skipped: false};
+  }
+
   async _ensureDaemonSupport() {
     const health = await marketDaemonClient.call("Health", {});
     const capabilities = Array.isArray(health && health.capabilities)
@@ -1016,6 +1075,7 @@ class NpcMarketLiquidityService extends BaseService {
         }
         : {};
       const existing = await this._listExistingOrders();
+      await this._cleanupDuplicateFuelOrders(existing);
       for (const stationID of this._config.hubStationIDs) {
         const station = this._loadHub(stationID);
         if (!oreOnly && this._config.resourceLiquidity.enabled) {

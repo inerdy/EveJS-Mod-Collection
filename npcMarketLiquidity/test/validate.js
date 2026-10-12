@@ -37,6 +37,8 @@ const migratedState = normalizeState({fuelSeedByStation: {
 }});
 assert.equal(migratedState.fuelSeedByStation["60003760"].orderID, "41");
 assert.equal(migratedState.fuelSeedByStation["60003760:17889"].orderID, "42");
+assert.equal(normalizeState({}).fuelDuplicateCleanupCompleted, false);
+assert.equal(normalizeState({fuelDuplicateCleanupCompleted: true}).fuelDuplicateCleanupCompleted, true);
 const marketManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "evejs-launcher.mod.json"), "utf8"));
 assert.equal(marketManifest.version, "0.6.0");
 assert.equal(config.priceManifestEnabled, true);

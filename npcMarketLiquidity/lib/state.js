@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
 
 function defaultState() {
   return {
@@ -16,6 +16,7 @@ function defaultState() {
     skippedItems: 0,
     marketStartedAt: "",
     fuelSeedByStation: {},
+    fuelDuplicateCleanupCompleted: false,
     lastError: "",
   };
 }
@@ -59,6 +60,7 @@ function normalizeState(value = {}) {
     skippedItems: Math.max(0, Math.trunc(Number(source.skippedItems) || 0)),
     marketStartedAt: String(source.marketStartedAt || ""),
     fuelSeedByStation,
+    fuelDuplicateCleanupCompleted: source.fuelDuplicateCleanupCompleted === true,
     lastError: String(source.lastError || ""),
   };
 }
