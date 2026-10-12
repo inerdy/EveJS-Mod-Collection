@@ -75,6 +75,14 @@ function buildAveragePrice(reference) {
   }
   if (Number.isFinite(ask) && ask > 0) return roundPrice(ask);
   if (Number.isFinite(bid) && bid > 0) return roundPrice(bid);
+  const askReference = Number(reference.askReference);
+  const bidReference = Number(reference.bidReference);
+  if (Number.isFinite(askReference) && askReference > 0 &&
+      Number.isFinite(bidReference) && bidReference > 0) {
+    return roundPrice((askReference + bidReference) / 2);
+  }
+  if (Number.isFinite(askReference) && askReference > 0) return roundPrice(askReference);
+  if (Number.isFinite(bidReference) && bidReference > 0) return roundPrice(bidReference);
   return null;
 }
 

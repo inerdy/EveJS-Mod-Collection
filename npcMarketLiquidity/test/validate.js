@@ -87,6 +87,7 @@ assert.equal(manifestReference.bestAsk, null);
 assert.equal(manifestReference.bestBid, null);
 assert.equal(manifestReference.askReference, manifest.entries.get(34).price);
 assert.equal(manifestReference.bidReference, manifest.entries.get(34).price);
+assert.equal(pricing.buildAveragePrice(manifestReference), manifest.entries.get(34).price);
 assert.equal(pricing.isRealMarketSource(manifest.entries.get(34).source), true);
 const buybackSettings = config.playerSellBuyback;
 assert.equal(service._testing.buybackPriceScore(85, 100, buybackSettings), 1);
