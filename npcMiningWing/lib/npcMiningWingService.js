@@ -886,6 +886,7 @@ class NpcMiningWingService extends BaseService {
       characterState(this._state, positive(characterID));
     }
     this._runtimeTimer = null;
+    this._miningDiagnostics = new Map();
     this._warpTargets = new Map();
     this._sessionSystems = new Map();
     this._routeCache = new Map();
@@ -4087,8 +4088,77 @@ class NpcMiningWingService extends BaseService {
       ), 0);
     return {
       flagID,
+      capacity,
+      used,
       availableVolume: Math.max(0, capacity - used),
     };
+  }
+
+  _observeMiningInventory(characterID, shipID, targetID, miningState, storage, snapshots) {
+    const now = Date.now();
+    const key = `${positive(characterID)}:${positive(shipID)}`;
+    const miningItems = cargoItemsForShip(characterID, shipID)
+      .filter(isMiningOutputItem);
+    const quantity = miningItems.reduce((sum, item) => sum + itemQuantity(item), 0);
+    const itemSummary = miningItems
+      .map((item) => `${positive(item.typeID)}:${itemQuantity(item)}@${positive(item.flagID)}`)
+      .join(",") || "none";
+    const state = this._miningDiagnostics.get(key);
+    if (!state) {
+      this._miningDiagnostics.set(key, {
+        quantity,
+        lastProgressAtMs: now,
+        lastWarnAtMs: 0,
+        nextCheckAtMs: now + 5000,
+      });
+      log.info(
+        `[NPCMiningWing] mining inventory monitor started ` +
+          `char=${positive(characterID)} ship=${positive(shipID)} ` +
+          `target=${positive(targetID)} quantity=${quantity} items=${itemSummary}`,
+      );
+      return;
+    }
+    if (now < state.nextCheckAtMs) {
+      return;
+    }
+    state.nextCheckAtMs = now + 5000;
+    if (quantity !== state.quantity) {
+      const delta = quantity - state.quantity;
+      log.info(
+        `[NPCMiningWing] mining inventory changed ` +
+          `char=${positive(characterID)} ship=${positive(shipID)} ` +
+          `target=${positive(targetID)} delta=${delta} quantity=${quantity} ` +
+          `items=${itemSummary}`,
+      );
+      state.quantity = quantity;
+      state.lastProgressAtMs = now;
+      state.lastWarnAtMs = 0;
+      return;
+    }
+
+    const cycleMs = Math.max(
+      1000,
+      ...snapshots.map((entry) => finite(entry && entry.snapshot && entry.snapshot.durationMs, 0)),
+    );
+    const noProgressMs = now - state.lastProgressAtMs;
+    const warningIntervalMs = Math.max(30000, cycleMs * 2);
+    if (
+      noProgressMs >= warningIntervalMs &&
+      now - state.lastWarnAtMs >= warningIntervalMs
+    ) {
+      log.warn(
+        `[NPCMiningWing] mining active but inventory unchanged ` +
+          `char=${positive(characterID)} ship=${positive(shipID)} ` +
+          `target=${positive(targetID)} yieldType=${positive(miningState && miningState.yieldTypeID)} ` +
+          `quantity=${quantity} items=${itemSummary} ` +
+          `holdFlag=${positive(storage && storage.flagID)} ` +
+          `holdUsed=${finite(storage && storage.used, 0)} ` +
+          `holdCapacity=${finite(storage && storage.capacity, 0)} ` +
+          `holdAvailable=${finite(storage && storage.availableVolume, 0)} ` +
+          `cycleMs=${cycleMs} noProgressMs=${noProgressMs}`,
+      );
+      state.lastWarnAtMs = now;
+    }
   }
 
   _syncMiningChanges(session, changes) {
@@ -4762,6 +4832,14 @@ class NpcMiningWingService extends BaseService {
     );
     const unitVolume = Math.max(0, finite(mineableState.unitVolume, 0));
     if (unitVolume <= 0 || storage.availableVolume < unitVolume) {
+      log.warn(
+        `[NPCMiningWing] mining blocked by hold capacity ` +
+          `char=${characterID} ship=${shipID} target=${positive(activeTarget.itemID)} ` +
+          `yieldType=${positive(mineableState.yieldTypeID)} ` +
+          `holdFlag=${storage.flagID} used=${storage.used} ` +
+          `capacity=${storage.capacity} available=${storage.availableVolume} ` +
+          `unitVolume=${unitVolume}`,
+      );
       this._deactivateWingMiningModules(
         scene,
         moduleSession,
@@ -4810,6 +4888,14 @@ class NpcMiningWingService extends BaseService {
       miningState.lastActivationTargetID = targetID;
       miningState.lastError = "";
       miningState.nextCycleAtMs = 0;
+      this._observeMiningInventory(
+        characterID,
+        shipID,
+        targetID,
+        {...miningState, yieldTypeID: mineableState.yieldTypeID},
+        storage,
+        compatibleMiningSnapshots,
+      );
       const droneResult = this._maintainMiningDrones(
         session,
         characterID,
