@@ -4094,7 +4094,15 @@ class NpcMiningWingService extends BaseService {
     };
   }
 
-  _observeMiningInventory(characterID, shipID, targetID, miningState, storage, snapshots) {
+  _observeMiningInventory(
+    characterID,
+    shipID,
+    targetID,
+    miningState,
+    storage,
+    snapshots,
+    runtime = {},
+  ) {
     const now = Date.now();
     const key = `${positive(characterID)}:${positive(shipID)}`;
     const miningItems = cargoItemsForShip(characterID, shipID)
@@ -4102,6 +4110,14 @@ class NpcMiningWingService extends BaseService {
     const quantity = miningItems.reduce((sum, item) => sum + itemQuantity(item), 0);
     const itemSummary = miningItems
       .map((item) => `${positive(item.typeID)}:${itemQuantity(item)}@${positive(item.flagID)}`)
+      .join(",") || "none";
+    const allContainerItems = itemStore.listContainerItems(null, shipID, null);
+    const containerSummary = allContainerItems
+      .slice(0, 20)
+      .map((item) => (
+        `${positive(item.ownerID)}:${positive(item.flagID)}:` +
+        `${positive(item.typeID)}x${itemQuantity(item)}`
+      ))
       .join(",") || "none";
     const state = this._miningDiagnostics.get(key);
     if (!state) {
@@ -4146,15 +4162,67 @@ class NpcMiningWingService extends BaseService {
       noProgressMs >= warningIntervalMs &&
       now - state.lastWarnAtMs >= warningIntervalMs
     ) {
+      const entity = runtime.entity || null;
+      const targetEntity = runtime.targetEntity || null;
+      const mineableState = runtime.mineableState || null;
+      const activation = runtime.activation || {};
+      const activeEffects = entity && entity.activeModuleEffects instanceof Map
+        ? [...entity.activeModuleEffects.values()].filter((effect) => (
+          effect && effect.miningEffect === true
+        ))
+        : [];
+      const effectSummary = activeEffects
+        .map((effect) => (
+          `${positive(effect.moduleID)}->${positive(effect.targetID)}` +
+          `(${Math.round(finite(effect.startedAtMs, 0))}/` +
+          `${Math.round(finite(effect.nextCycleAtMs, 0))})`
+        ))
+        .join(",") || "none";
+      const moduleSummary = snapshots
+        .map((entry) => {
+          const module = entry && entry.moduleItem || {};
+          const snapshot = entry && entry.snapshot || {};
+          return `${positive(module.itemID)}/${positive(module.typeID)}:` +
+            `${String(snapshot.family || "unknown")},` +
+            `${finite(snapshot.durationMs, 0)}ms,` +
+            `${finite(snapshot.miningAmountM3, 0)}m3,` +
+            `${finite(snapshot.maxRangeMeters, 0)}m`;
+        })
+        .join(";") || "none";
+      const targetDistance = entity && targetEntity
+        ? surfaceDistanceBetween(entity, targetEntity)
+        : 0;
+      const targetLocked = Boolean(
+        entity &&
+        runtime.scene &&
+        typeof runtime.scene.getTargetsForEntity === "function" &&
+        runtime.scene.getTargetsForEntity(entity).includes(positive(targetID)),
+      );
       log.warn(
         `[NPCMiningWing] mining active but inventory unchanged ` +
           `char=${positive(characterID)} ship=${positive(shipID)} ` +
           `target=${positive(targetID)} yieldType=${positive(miningState && miningState.yieldTypeID)} ` +
           `quantity=${quantity} items=${itemSummary} ` +
+          `containerRows=${allContainerItems.length}[${containerSummary}] ` +
           `holdFlag=${positive(storage && storage.flagID)} ` +
           `holdUsed=${finite(storage && storage.used, 0)} ` +
           `holdCapacity=${finite(storage && storage.capacity, 0)} ` +
           `holdAvailable=${finite(storage && storage.availableVolume, 0)} ` +
+          `unitVolume=${finite(mineableState && mineableState.unitVolume, 0)} ` +
+          `remaining=${finite(mineableState && mineableState.remainingQuantity, 0)} ` +
+          `distance=${Math.round(targetDistance)} locked=${targetLocked} ` +
+          `activeModules=${activation.active || 0} ` +
+          `activatedModules=${activation.activated || 0} ` +
+          `pendingModules=${activation.pending || 0} ` +
+          `moduleErrors=${JSON.stringify(activation.errors || [])} ` +
+          `effects=[${effectSummary}] modules=[${moduleSummary}] ` +
+          `entityKind=${String(entity && entity.kind || "unknown")} ` +
+          `nativeNpc=${Boolean(entity && entity.nativeNpc)} ` +
+          `runtimeOwner=${positive(entity && entity.runtimeOwnerCharacterID)} ` +
+          `entityOwner=${positive(entity && entity.ownerID)} ` +
+          `entityCharacter=${positive(entity && entity.characterID)} ` +
+          `pilotCharacter=${positive(entity && entity.pilotCharacterID)} ` +
+          `hasSession=${Boolean(entity && entity.session)} ` +
           `cycleMs=${cycleMs} noProgressMs=${noProgressMs}`,
       );
       state.lastWarnAtMs = now;
@@ -4895,6 +4963,13 @@ class NpcMiningWingService extends BaseService {
         {...miningState, yieldTypeID: mineableState.yieldTypeID},
         storage,
         compatibleMiningSnapshots,
+        {
+          entity,
+          targetEntity: activeTarget,
+          mineableState,
+          activation,
+          scene,
+        },
       );
       const droneResult = this._maintainMiningDrones(
         session,
