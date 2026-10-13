@@ -71,6 +71,7 @@ let characterStateService = null;
 let sessionRegistry = null;
 let chatHub = null;
 let chatRuntime = null;
+let nativeMiningCycleDiagnosticsAttempted = false;
 
 const CHAT_COMMAND_METHODS = new Set([
   "SetShipMarked",
@@ -4094,6 +4095,99 @@ class NpcMiningWingService extends BaseService {
     };
   }
 
+  _installNativeMiningCycleDiagnostics() {
+    if (nativeMiningCycleDiagnosticsAttempted) {
+      return;
+    }
+    nativeMiningCycleDiagnosticsAttempted = true;
+    try {
+      const miningRuntime = require(serverPath("services", "mining", "miningRuntime"));
+      const originalExecuteMiningCycle = miningRuntime.executeMiningCycle;
+      if (typeof originalExecuteMiningCycle !== "function") {
+        log.warn(
+          "[NPCMiningWing] native mining cycle diagnostics unavailable: " +
+            "executeMiningCycle export missing",
+        );
+        return;
+      }
+      if (originalExecuteMiningCycle.npcMiningWingDiagnostics === true) {
+        return;
+      }
+
+      const executeMiningCycleWithDiagnostics = function(...args) {
+        const [scene, entity, effectState] = args;
+        if (!entity || entity.npcMiningWingController !== true) {
+          return originalExecuteMiningCycle.apply(this, args);
+        }
+
+        const startedAtMs = Date.now();
+        let result;
+        try {
+          result = originalExecuteMiningCycle.apply(this, args);
+        } catch (error) {
+          log.warn(
+            `[NPCMiningWing] native mining cycle threw ` +
+              `char=${positive(entity.runtimeOwnerCharacterID)} ` +
+              `ship=${positive(entity.itemID)} ` +
+              `module=${positive(effectState && effectState.moduleID)} ` +
+              `target=${positive(effectState && effectState.targetID)} ` +
+              `error=${String(error && error.stack || error)}`,
+          );
+          throw error;
+        }
+
+        const characterID = positive(
+          entity.session && entity.session.characterID ||
+          entity.characterID ||
+          entity.pilotCharacterID ||
+          entity.runtimeOwnerCharacterID,
+        );
+        let cargoRows = [];
+        try {
+          cargoRows = itemStore
+            .listContainerItems(characterID, positive(entity.itemID), null)
+            .filter(isCargoItem);
+        } catch (error) {
+          log.warn(
+            `[NPCMiningWing] native mining inventory inspection failed ` +
+              `char=${characterID} ship=${positive(entity.itemID)} ` +
+              `error=${String(error && error.message || error)}`,
+          );
+        }
+        const cargoSummary = cargoRows
+          .slice(0, 20)
+          .map((item) => (
+            `${positive(item.typeID)}x${itemQuantity(item)}@${positive(item.flagID)}`
+          ))
+          .join(",") || "none";
+        const data = result && result.data || {};
+        const success = Boolean(result && result.success === true);
+        const level = success ? "info" : "warn";
+        log[level](
+          `[NPCMiningWing] native mining cycle result ` +
+            `char=${characterID} ship=${positive(entity.itemID)} ` +
+            `module=${positive(effectState && effectState.moduleID)} ` +
+            `target=${positive(effectState && effectState.targetID)} ` +
+            `success=${success} stopReason=${String(result && result.stopReason || "none")} ` +
+            `yieldType=${positive(data.yieldTypeID)} ` +
+            `transferred=${finite(data.transferredQuantity, 0)} ` +
+            `wasted=${finite(data.wastedQuantity, 0)} ` +
+            `inventoryRows=${cargoRows.length}[${cargoSummary}] ` +
+            `elapsedMs=${Date.now() - startedAtMs}`,
+        );
+        return result;
+      };
+      executeMiningCycleWithDiagnostics.npcMiningWingDiagnostics = true;
+      miningRuntime.executeMiningCycle = executeMiningCycleWithDiagnostics;
+      log.info("[NPCMiningWing] native mining cycle diagnostics attached");
+    } catch (error) {
+      log.warn(
+        `[NPCMiningWing] native mining cycle diagnostics failed to attach: ` +
+          `${String(error && error.stack || error)}`,
+      );
+    }
+  }
+
   _observeMiningInventory(
     characterID,
     shipID,
@@ -4700,6 +4794,7 @@ class NpcMiningWingService extends BaseService {
     entity,
     leader,
   ) {
+    this._installNativeMiningCycleDiagnostics();
     const ship = itemStore.findCharacterShipItem(characterID, shipID);
     if (!ship || !isShipInSystem(ship, systemID)) {
       return false;
