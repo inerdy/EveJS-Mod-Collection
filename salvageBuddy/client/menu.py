@@ -8,6 +8,7 @@ import evejs_mod_menu as mods
 import uthread
 from carbonui import uiconst
 from carbonui.control.button import Button
+from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
 from carbonui.primitives.container import Container
 from eve.client.script.ui.control.eveLabel import EveLabelMedium
@@ -51,7 +52,12 @@ class SalvageBuddyWindow(Window):
         self._closed = False
         self._generation = 0
         self._send_away_pending = False
-        self._body = Container(parent=self.content, align=uiconst.TOTOP, height=280, padding=(8, 8, 8, 8))
+        self._scroll = ScrollContainer(
+            parent=self.content,
+            align=uiconst.TOALL,
+            padding=(8, 2, 8, 8),
+        )
+        self._body = Container(parent=self._scroll, align=uiconst.TOTOP, height=280)
         self._status = EveLabelMedium(
             parent=self._body,
             align=uiconst.TOTOP,

@@ -36,24 +36,35 @@ def _color_text(color, text):
     return '<color=%s>%s</color>' % (color, text)
 
 
+def _human_error(code):
+    raw = str(code or '').strip()
+    marker = raw.find('NPC_WING_')
+    if marker >= 0:
+        raw = raw[marker:]
+    parts = raw.split(':', 1)
+    message = parts[0].replace('NPC_WING_', '').replace('_', ' ').title()
+    detail = parts[1].strip() if len(parts) > 1 else ''
+    return '%s (%s)' % (message, detail) if detail else message
+
+
 def _status_color(status):
     normalized = (status or '').lower()
     if normalized in ('following', 'follow'):
         return _COLOR_FOLLOWING
     if normalized in ('mining', 'deployed', 'deployed-elsewhere'):
         return _COLOR_ACTIVE
-    if normalized in ('warping', 'approaching', 'approaching station', 'traveling'):
+    if normalized in ('launching', 'warping', 'approaching', 'approaching station', 'traveling'):
         return _COLOR_MOVING
     if normalized in ('docking', 'docking-with-pilot'):
         return _COLOR_MOVING
-    if normalized in ('returning', 'recall'):
+    if normalized in ('returning', 'recall', 'hold full'):
         return _COLOR_RETURNING
     if normalized in ('combat defense', 'combat', 'drones returning'):
         return _COLOR_COMBAT
+    if normalized in ('collection waiting', 'lost', 'error'):
+        return _COLOR_ERROR
     if normalized in ('holding', 'hold'):
         return _COLOR_HOLDING
-    if normalized in ('lost', 'error'):
-        return _COLOR_ERROR
     if normalized in ('marked', 'roster-ready'):
         return _COLOR_MARKED
     return _COLOR_MUTED
@@ -126,10 +137,11 @@ class NpcMiningWingWindow(Window):
         self._state_generation = 1
         self._active_tab = 'wing'
         self._last_state = None
+        self._pending_requests = {}
         self._status = EveLabelMedium(
             parent=self.content,
             align=uiconst.TOTOP,
-            height=68,
+            height=100,
             padLeft=8,
             padTop=4,
             text=_color_text(_COLOR_MUTED, 'Loading...'),
@@ -274,8 +286,31 @@ class NpcMiningWingWindow(Window):
         marked_count = len([ship for ship in all_ships if ship.get('marked')])
         recall_target = state.get('recallTargetSummary', 'Not set')
         runtime_message = state.get('runtimeMessage', '')
+        runtime_metrics = state.get('runtimeMetrics') or {}
+        collection_trip = state.get('collectionTrip') or {}
+        collection_error = collection_trip.get('lastError') or ''
+        collection_message = ''
+        if collection_error:
+            collection_message = _color_text(
+                _COLOR_ERROR,
+                'Collection retry: %s (%s failures)' % (
+                    _human_error(collection_error),
+                    collection_trip.get('failureCount', 0) or 0,
+                ),
+            )
+        telemetry_message = ''
+        if runtime_metrics.get('runtimeTicks'):
+            telemetry_message = _color_text(
+                _COLOR_MUTED,
+                'Ticks: %s | Cycles: %s | Cargo moves: %s | Failures: %s' % (
+                    runtime_metrics.get('runtimeTicks', 0),
+                    runtime_metrics.get('miningActivations', 0),
+                    runtime_metrics.get('cargoMoves', 0),
+                    runtime_metrics.get('runtimeFailures', 0),
+                ),
+            )
         self._status.SetText(
-            '%s %s | %s %s | %s %s\n%s %s\n%s\n%s' % (
+            '%s %s | %s %s | %s %s\n%s %s\n%s\n%s\n%s\n%s' % (
                 _color_text(_COLOR_LABEL, 'Status:'),
                 _color_text(_status_color(runtime_status), runtime_status),
                 _color_text(_COLOR_LABEL, 'Command:'),
@@ -285,6 +320,8 @@ class NpcMiningWingWindow(Window):
                 _color_text(_COLOR_LABEL, 'Recall target:'),
                 _color_text(_COLOR_MUTED, recall_target),
                 _color_text(_COLOR_MUTED, runtime_message),
+                collection_message,
+                telemetry_message,
                 _color_text(
                     _COLOR_COLLECTION,
                     'Collection: %s' % (
@@ -559,12 +596,18 @@ class NpcMiningWingWindow(Window):
         )
 
     def _request(self, method, payload):
+        if self._pending_requests.get(method):
+            return
+        self._pending_requests[method] = True
         try:
             response = getattr(sm.RemoteSvc(_service), method)(payload)
-            self._render_state(self._decode_state(response))
+            if not self.destroyed:
+                self._render_state(self._decode_state(response))
         except Exception as error:
             if not self.destroyed:
-                self._status.SetText('Request failed: %s' % error)
+                self._status.SetText('Request failed: %s' % _human_error(error))
+        finally:
+            self._pending_requests.pop(method, None)
 
     def Close(self, *args, **kwargs):
         global _window

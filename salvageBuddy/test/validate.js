@@ -56,6 +56,8 @@ assert.match(service, /buildDroneStateNotificationTuple/u);
 assert.match(service, /OnDroneStateChange/u);
 assert.match(service, /_removeServiceDrones\(request, session\)/u);
 assert.match(menu, /state=uiconst\.UI_DISABLED/u);
+assert.match(menu, /ScrollContainer/u);
+assert.match(menu, /parent=self\._scroll/u);
 assert.match(menu, /_send_away_pending/u);
 assert.match(menu, /canSendAway/u);
 assert.match(menu, /Cooldown: 2 minutes/u);

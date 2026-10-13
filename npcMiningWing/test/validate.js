@@ -29,14 +29,26 @@ assert.deepEqual(packageFiles.sort(), [
   "client/menu.py",
   "evejs-launcher.mod.json",
   "lib/npcMiningWingDroneBridge.js",
+  "lib/npcMiningWingDroneState.js",
+  "lib/npcMiningWingHost.js",
+  "lib/npcMiningWingMiningCompatibility.js",
+  "lib/npcMiningWingMiningTrace.js",
+  "lib/npcMiningWingMovement.js",
   "lib/npcMiningWingService.js",
+  "lib/npcMiningWingState.js",
   "loader.js",
+  "test/droneBridge.test.js",
+  "test/droneBridgeState.test.js",
+  "test/loader.test.js",
+  "test/miningTrace.test.js",
+  "test/movement.test.js",
+  "test/state.test.js",
   "test/validate.js",
 ]);
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npcminingwing");
-assert.equal(manifest.version, "0.10.1");
+assert.equal(manifest.version, "0.12.10");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -45,6 +57,12 @@ assert.equal(manifest.clientMenu.apiVersion, 1);
 const loader = fs.readFileSync(path.join(modRoot, "loader.js"), "utf8");
 assert.match(loader, /npcMiningWingService/);
 assert.match(loader, /npcMiningWingDroneBridge/);
+assert.match(loader, /EVEJS_ROOT/);
+assert.match(loader, /REQUIRED_EVEJS_VERSION/);
+assert.match(loader, /npcMiningWingHost/);
+assert.match(loader, /station docking geometry/);
+assert.match(loader, /mining runtime state/);
+assert.match(loader, /chat runtime/);
 assert.match(loader, /automatic drone/);
 const readme = fs.readFileSync(path.join(modRoot, "README.md"), "utf8");
 assert.match(readme, /NPC Mining Wing lets a player deploy/u);
@@ -90,6 +108,8 @@ assert.match(client, /All Ships/u);
 assert.match(client, /def _select_tab\(self, tab_key\)/u);
 assert.match(client, /def _status_color\(status\)/u);
 assert.match(client, /_color_text\(_COLOR_MUTED, status_detail\)/u);
+assert.match(client, /def _human_error\(code\)/u);
+assert.match(client, /Request failed: %s.*_human_error\(error\)/u);
 assert.match(client, /Follow Wing/u);
 assert.match(client, /Collect Cargo from Ship/u);
 assert.match(client, /SetCollectionShip/u);
@@ -99,10 +119,14 @@ assert.doesNotMatch(client, /carbonui\.control\.button/u);
 assert.doesNotMatch(client, /label='Find'/u);
 assert.doesNotMatch(client, /_add_command_row/u);
 assert.match(client, /statusLabel/u);
+assert.match(client, /runtimeMetrics/u);
 assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /npcMiningWing/);
 assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /getCharacterShipItems/);
 assert.doesNotMatch(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /listCharacterShipItems/);
 assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /JSON\.stringify\(/);
+assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /corruptStateBackupCreated/);
+assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /EEXIST/);
+assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /copyFileSync\(temporaryPath, STATE_PATH\)/);
 assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /unwrapMarshalValue/);
 assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingService.js"), "utf8"), /function requestObject/);
 assert.match(client, /json\.loads\(response\)/u);
@@ -111,12 +135,41 @@ const droneBridge = fs.readFileSync(
   path.join(modRoot, "lib", "npcMiningWingDroneBridge.js"),
   "utf8",
 );
+const droneState = fs.readFileSync(
+  path.join(modRoot, "lib", "npcMiningWingDroneState.js"),
+  "utf8",
+);
+const wingState = fs.readFileSync(
+  path.join(modRoot, "lib", "npcMiningWingState.js"),
+  "utf8",
+);
+const hostAdapter = fs.readFileSync(
+  path.join(modRoot, "lib", "npcMiningWingHost.js"),
+  "utf8",
+);
+const evejsRootCandidates = [
+  process.env.EVEJS_ROOT,
+  path.resolve(modRoot, "..", "..", "EveJS-v0.12.9"),
+  path.resolve(modRoot, "..", ".."),
+].filter(Boolean);
+const evejsRoot = evejsRootCandidates.find((candidate) => fs.existsSync(
+  path.join(candidate, "server", "src", "services", "mining", "miningRuntime.js"),
+));
+assert.ok(
+  evejsRoot,
+  "Could not locate the EveJS server. Set EVEJS_ROOT when validating an installed mod.",
+);
 const miningRuntime = fs.readFileSync(
-  path.join(modRoot, "..", "..", "server", "src", "services", "mining", "miningRuntime.js"),
+  path.join(evejsRoot, "server", "src", "services", "mining", "miningRuntime.js"),
   "utf8",
 );
 assert.match(service, /spaceRuntime/);
+assert.match(fs.readFileSync(path.join(modRoot, "lib", "npcMiningWingMovement.js"), "utf8"), /getStationUndockSpawnState/);
 assert.match(service, /moveShipToSpace/);
+assert.match(service, /buildStationLaunchSpaceState/);
+assert.match(service, /launchTransit/);
+assert.match(service, /scene-reentry/);
+assert.match(client, /launching/u);
 assert.match(service, /spawnDynamicInventoryEntity/);
 assert.match(service, /followDynamicEntity/);
 assert.match(service, /stopDynamicEntity/);
@@ -130,6 +183,9 @@ assert.match(service, /Handle_TransferCargo/);
 assert.match(service, /Handle_SetCollectionShip/);
 assert.match(service, /Handle_SendCollectionShip/);
 assert.match(service, /collectionTrip/);
+assert.match(service, /failureCount/);
+assert.match(service, /NPC_WING_COLLECTION_ROUTE_UNAVAILABLE/);
+assert.match(service, /collection-waiting/);
 assert.match(service, /_availableCollectionShipID/);
 assert.match(service, /collectionShipID/);
 assert.match(service, /destinationShipID/);
@@ -142,6 +198,20 @@ assert.match(service, /WING_CHAT_DISPLAY_NAME/);
 assert.match(service, /joinChannel:/u);
 assert.match(service, /Wing Comms/);
 assert.match(service, /friendlyErrorMessage/);
+assert.match(service, /NPC_WING_OPERATION_IN_PROGRESS/);
+assert.match(service, /markCollectionUnavailableStates/);
+assert.match(service, /deferCollectionTrip/);
+assert.match(service, /clearCollectionTripRetry/);
+assert.match(service, /nextRuntimeFailure/);
+assert.match(service, /runtimeFailureIsCoolingDown/);
+assert.match(wingState, /markCollectionUnavailableStates/);
+assert.match(wingState, /deferCollectionTrip/);
+assert.match(wingState, /clearCollectionTripRetry/);
+assert.match(wingState, /nextRuntimeFailure/);
+assert.match(wingState, /serializePersistentState/);
+assert.match(wingState, /serializePersistentMiningStates/);
+assert.match(hostAdapter, /EVEJS_ROOT/);
+assert.match(hostAdapter, /serverPath/);
 assert.match(service, /no-mining-module/);
 assert.match(service, /MAX_WING_SHIPS/);
 assert.match(service, /NPC_WING_MAX_SHIPS_EXCEEDED/);
@@ -152,6 +222,11 @@ assert.match(service, /cargo-waiting/);
 assert.match(service, /NPC_WING_DESTINATION_HOLD_FULL/);
 assert.match(service, /automatic: true/);
 assert.match(service, /NPC_WING_COLLECTION_TRIP_ACTIVE/);
+assert.match(service, /miningHandoffIsReady/);
+assert.match(service, /cargo handoff skipped: no mining output/);
+assert.match(service, /cargo handoff moved nothing/);
+assert.match(service, /capacity-blocked/);
+assert.match(wingState, /miningHandoffIsReady/);
 assert.match(service, /_transferCargoForShip/);
 assert.match(service, /miningRuntimeState/);
 assert.match(service, /_applyWingSkillProfile/);
@@ -161,6 +236,12 @@ assert.match(service, /activateGenericModule/);
 assert.match(service, /_buildWingModuleSession/);
 assert.match(service, /_deactivateWingMiningModules/);
 assert.match(service, /followTransit/);
+assert.match(service, /runtimeMetrics/);
+assert.match(service, /runtimeTicks/);
+assert.match(service, /runtimeFailures/);
+assert.match(service, /collectionRetries/);
+assert.match(service, /miningActivations/);
+assert.match(service, /cargoMoves/);
 assert.match(service, /native mining activated/);
 assert.doesNotMatch(service, /_mineOneCycle/);
 assert.doesNotMatch(service, /computeMiningResult/);
@@ -205,18 +286,31 @@ assert.match(droneBridge, /resolveWingDroneCapabilities/);
 assert.match(droneBridge, /noteIncomingAggression/);
 assert.match(droneBridge, /getActiveShipRecord/);
 assert.match(droneBridge, /activeShipOverrides/);
+assert.match(droneBridge, /npcMiningWingDroneState/);
+assert.match(droneState, /activeShipOverrideStacks/);
+assert.match(droneState, /Promise\.resolve\(result\)\.finally/);
 assert.doesNotMatch(service, /server[\\/]src[\\/].*write/);
 assert.match(service, /getEntityTargetingStats/);
 assert.match(service, /orbitShipEntity/);
 assert.match(service, /target-incompatible/);
 assert.match(service, /gate-follow/);
 assert.match(service, /recallTransit/);
+assert.match(service, /if \(!this\._removeShipFromSystemScene\(runtime, fromSystemID, shipID\)\)/u);
+assert.match(service, /if \(!this\._removeShipFromSystemScene\(runtime, currentSystemID, shipID\)\)/u);
 assert.match(service, /dockingStationIDs/);
 assert.match(service, /dockingWithLeader/);
 assert.match(service, /pendingDock/);
 assert.match(service, /statusLabel/);
 assert.match(service, /recallTargetSummary/);
 assert.match(service, /follow-dock/);
+assert.match(service, /dockingTargetSystems/);
+const dockingMethodStart = service.indexOf("  _tickDockingWithoutLeader(");
+const dockingMethodEnd = service.indexOf("  _ensureDeployedEntity(", dockingMethodStart);
+assert.ok(dockingMethodStart >= 0 && dockingMethodEnd > dockingMethodStart);
+assert.doesNotMatch(
+  service.slice(dockingMethodStart, dockingMethodEnd),
+  /positive\(trip\.targetSystemID\)/u,
+);
 assert.match(service, /_syncDockedShipToSession/);
 assert.match(service, /_depositDockedMiningCargo/);
 assert.match(service, /isMiningOutputItem/);
@@ -232,7 +326,7 @@ assert.match(client, /RecallWing/);
 assert.match(client, /Recall Wing/);
 assert.match(client, /TransferCargo/);
 assert.match(client, /SetDestination/);
-assert.match(miningRuntime, /runtimeOwnerCharacterID/);
-assert.match(miningRuntime, /const persistedShipItem = findShipItemById/);
-assert.match(miningRuntime, /entity\.skillMap instanceof Map/);
+assert.match(miningRuntime, /pilotCharacterID/);
+assert.match(miningRuntime, /findShipItemById/);
+assert.match(miningRuntime, /skillMap/);
 console.log("NPC Mining Wing manifest and package checks passed.");

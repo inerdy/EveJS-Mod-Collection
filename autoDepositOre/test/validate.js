@@ -45,6 +45,8 @@ assert.match(client, /Auto Deposit Ore/u);
 assert.match(client, /GetState/u);
 assert.match(client, /SetEnabled/u);
 assert.match(client, /Button/u);
+assert.match(client, /ScrollContainer/u);
+assert.match(client, /parent=self\._scroll/u);
 assert.match(client, /SetLabel/u);
 assert.match(client, /mods\.register/u);
 

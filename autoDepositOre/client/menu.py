@@ -7,7 +7,9 @@ import evejs_mod_menu as mods
 import uthread
 from carbonui import uiconst
 from carbonui.control.button import Button
+from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
+from carbonui.primitives.container import Container
 from eve.client.script.ui.control.eveLabel import EveLabelMedium
 
 
@@ -20,14 +22,24 @@ class AutoDepositOreWindow(Window):
     default_windowID = _WINDOW_ID
     default_caption = 'Auto Deposit Ore'
     default_width = 360
-    default_height = 150
+    default_height = 230
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
         Window.ApplyAttributes(self, attributes)
         self._enabled = True
-        self._status = EveLabelMedium(
+        self._scroll = ScrollContainer(
             parent=self.content,
+            align=uiconst.TOALL,
+            padding=(8, 2, 8, 8),
+        )
+        self._body = Container(
+            parent=self._scroll,
+            align=uiconst.TOTOP,
+            height=240,
+        )
+        self._status = EveLabelMedium(
+            parent=self._body,
             align=uiconst.TOTOP,
             height=42,
             padLeft=10,
@@ -35,7 +47,7 @@ class AutoDepositOreWindow(Window):
             text='Loading Auto Deposit Ore settings...',
         )
         self._toggle = Button(
-            parent=self.content,
+            parent=self._body,
             align=uiconst.TOTOP,
             height=32,
             padLeft=10,
@@ -44,9 +56,9 @@ class AutoDepositOreWindow(Window):
             func=self._toggle_enabled,
         )
         EveLabelMedium(
-            parent=self.content,
+            parent=self._body,
             align=uiconst.TOTOP,
-            height=42,
+            height=70,
             padLeft=10,
             padTop=10,
             text='When enabled, ore, gas, ice, and general mining-hold contents '
