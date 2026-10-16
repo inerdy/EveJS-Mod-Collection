@@ -8,15 +8,17 @@ const modRoot = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(modRoot, "evejs-launcher.mod.json"), "utf8"));
 const {normalizeConfig} = require(path.join(modRoot, "lib", "config"));
 const {normalizeState} = require(path.join(modRoot, "lib", "state"));
-const ServiceModule = require(path.join(modRoot, "lib", "shipWarpFuelService"));
-const testing = ServiceModule._testing;
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "shipwarpfuel");
-assert.equal(manifest.version, "0.2.0");
+assert.equal(manifest.version, "0.2.1");
 assert.deepEqual(manifest.compatibility.evejsVersions, ["0.12.9"]);
 assert.deepEqual(manifest.clientMenu, {apiVersion: 1, entrypoint: "client/menu.py"});
 
+// UI/package validation is portable; backend tests require an installed host.
+if (!process.argv.includes("--client-only")) {
+const ServiceModule = require(path.join(modRoot, "lib", "shipWarpFuelService"));
+const testing = ServiceModule._testing;
 const config = normalizeConfig({});
 assert.equal(config.enabled, true);
 assert.equal(config.fuelTypeID, 17887);
@@ -264,13 +266,15 @@ const marshaledEstimate = JSON.parse(fuelService.Handle_GetWaypointFuelEstimate(
 assert.equal(marshaledEstimate.hasRoute, true);
 JSON.parse(fuelService.Handle_SetFuelType([{fuelTypeID: 17887}], session));
 
+}
+
 const loader = fs.readFileSync(path.join(modRoot, "loader.js"), "utf8");
 assert.match(loader, /serviceManager\.js/u);
 assert.match(loader, /warpToEntity/u);
 assert.match(loader, /warpToPoint/u);
 assert.match(loader, /fittingRuntime\.js/u);
 assert.match(loader, /attachSession/u);
-assert.match(loader, /MOD_VERSION = "0\.2\.0"/u);
+assert.match(loader, /MOD_VERSION = "0\.2\.1"/u);
 
 const client = fs.readFileSync(path.join(modRoot, "client", "menu.py"), "utf8");
 assert.match(client, /Ship Warp Fuel/u);
@@ -279,19 +283,19 @@ assert.match(client, /LoadFuel/u);
 assert.match(client, /RequestEmergencyFuel/u);
 assert.match(client, /GetWaypointFuelEstimate/u);
 assert.match(client, /SetFuelType/u);
-assert.match(client, /Waypoint estimate:/u);
-assert.match(client, /Switch Fuel:/u);
+assert.match(client, /units short/u);
+assert.match(client, /self\._fuel_type = Combo/u);
 assert.match(client, /GetAutopilotRoute/u);
 assert.match(client, /inSpace/u);
 assert.match(client, /ScrollContainer/u);
-assert.match(client, /parent=self\._body/u);
+assert.match(client, /_section\(self\._body/u);
 assert.match(client, /mods\.register/u);
 assert.equal(client.includes('Cargo Oxygen:'), false);
 assert.equal(client.includes('Contents:'), false);
 assert.ok(client.indexOf('self._odometer =') < client.indexOf('self._load_button ='));
 assert.match(client, /UI_HIDDEN/u);
-assert.match(client, /self\._details\.state = uiconst\.UI_NORMAL if fuel <= 0 and in_space else uiconst\.UI_HIDDEN/u);
-assert.match(client, /_emergency_request_pending/u);
+assert.match(client, /show_emergency or debt > 0/u);
+assert.match(client, /self\._busy/u);
 assert.match(client, /Emergency fuel ship: on the way/u);
 assert.match(client, /UI_DISABLED/u);
 
@@ -332,4 +336,6 @@ assert.deepEqual(packageFiles.sort(), [
   "test/validate.js",
 ]);
 
-console.log("Ship Warp Fuel manifest, configuration, state, loader, UI, and package checks passed.");
+console.log(process.argv.includes("--client-only")
+  ? "Ship Warp Fuel manifest, loader, UI, and package checks passed (backend checks not run)."
+  : "Ship Warp Fuel manifest, configuration, state, loader, UI, and package checks passed.");

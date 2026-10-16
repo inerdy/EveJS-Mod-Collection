@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "bountyhunting",
   "displayName": "Bounty Hunting",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Awards NPC bounty-hunting progression and configurable rewards for final blows.",
   "kind": "loader",
   "supportedBackends": ["native"],

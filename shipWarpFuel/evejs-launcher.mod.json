@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "shipwarpfuel",
   "displayName": "Ship Warp Fuel",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Adds selectable isotope warp fuel, burn rates, waypoint estimates, ship odometers, and emergency fuel service.",
   "kind": "loader",
   "supportedBackends": ["native"],

@@ -10,14 +10,15 @@ from carbonui import uiconst
 from carbonui.control.button import Button
 from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
-from carbonui.primitives.container import Container
-from eve.client.script.ui.control.eveLabel import EveLabelMedium
+from carbonui.primitives.containerAutoSize import ContainerAutoSize
+from carbonui.primitives.fill import Fill
+from eve.client.script.ui.control.eveLabel import Label
 
 
-SCAN_INTERVAL_MS = 500
+SCAN_INTERVAL_MS = 1500
+MAX_LOCK_REQUESTS_PER_SCAN = 1
 TARGETING_MARGIN = 0.98
 MAX_TARGETS_FALLBACK = 8
-MAX_DISPLAY_TARGETS = 24
 
 WEAKNESS_PROFILES = (
     ('angel cartel', 'Explosive / Kinetic'),
@@ -31,7 +32,35 @@ WEAKNESS_PROFILES = (
     ('rogue', 'Explosive / Thermal'),
 )
 
+NPC_FACTION_HINTS = (
+    ('alvi', 'Rogue Drones'),
+    ('infester', 'Rogue Drones'),
+    ('splinter', 'Rogue Drones'),
+    ('decimator', 'Rogue Drones'),
+    ('render', 'Rogue Drones'),
+    ('devilfish', 'Rogue Drones'),
+)
+
 _window = None
+
+_COLOR_MUTED = '0xffa6adb8'
+_COLOR_ACTIVE = '0xff71e6a3'
+_COLOR_ERROR = '0xffff6b6b'
+
+
+def _label(parent, text='', **kwargs):
+    kwargs.setdefault('align', uiconst.TOTOP)
+    kwargs.setdefault('autoFitToText', True)
+    kwargs.setdefault('fontsize', 13)
+    kwargs.setdefault('state', uiconst.UI_DISABLED)
+    return Label(parent=parent, text=text, **kwargs)
+
+
+def _section(parent, title):
+    panel = ContainerAutoSize(parent=parent, align=uiconst.TOTOP, padBottom=12)
+    Fill(bgParent=panel, color=(0.05, 0.08, 0.1, 0.9))
+    _label(panel, title, fontsize=12, color=(0.45, 0.77, 0.8, 1), padding=(10, 8, 10, 6))
+    return panel
 
 
 def _positive_int(value):
@@ -121,12 +150,15 @@ def _target_type_id(slim):
     return None
 
 
-def _target_type_name(slim):
+def _target_type_name(slim, target_ball=None):
     type_id = _target_type_id(slim)
     type_record = _config_record('invtypes', type_id)
     return (
         _read_display_text(slim, ('typeName', 'shipTypeName')) or
+        _read_display_text(target_ball, ('typeName', 'shipTypeName')) or
         _read_display_text(type_record, ('name', 'typeName')) or
+        _read_display_text(slim, ('name', 'displayName', 'itemName', 'slimName')) or
+        _read_display_text(target_ball, ('name', 'displayName', 'itemName')) or
         ('Type %s' % type_id if type_id is not None else 'Unknown type')
     )
 
@@ -139,26 +171,53 @@ def _target_name(slim, target_ball, type_name):
     )
 
 
-def _target_faction_name(slim):
-    direct_name = _read_display_text(
-        slim,
-        ('factionName', 'npcFaction', 'corporationName', 'corpName', 'ownerName'),
+def _target_faction_name(slim, target_ball=None, type_name=None):
+    direct_names = (
+        _read_display_text(
+            slim,
+            ('factionName', 'npcFaction', 'corporationName', 'corpName', 'ownerName'),
+        ),
+        _read_display_text(
+            target_ball,
+            ('factionName', 'npcFaction', 'corporationName', 'corpName', 'ownerName'),
+        ),
     )
+    direct_name = next((name for name in direct_names if name), None)
     if direct_name:
         return direct_name
 
-    faction_id = _positive_int(getattr(slim, 'factionID', None))
-    faction_record = _config_record('factions', faction_id)
-    faction_name = _read_display_text(faction_record, ('name', 'factionName'))
-    if faction_name:
-        return faction_name
+    for value in (
+        getattr(slim, 'factionID', None),
+        getattr(slim, 'factionId', None),
+        getattr(slim, 'warFactionID', None),
+        getattr(slim, 'warFactionId', None),
+        getattr(target_ball, 'factionID', None),
+        getattr(target_ball, 'factionId', None),
+        getattr(target_ball, 'warFactionID', None),
+        getattr(target_ball, 'warFactionId', None),
+    ):
+        faction_id = _positive_int(value)
+        faction_record = _config_record('factions', faction_id)
+        faction_name = _read_display_text(faction_record, ('name', 'factionName'))
+        if faction_name:
+            return faction_name
 
     for name in ('ownerID', 'ownerId', 'corpID', 'corporationID'):
-        owner_id = _positive_int(getattr(slim, name, None))
-        owner_record = _config_record('eveowners', owner_id)
-        owner_name = _read_display_text(owner_record, ('name', 'ownerName'))
-        if owner_name:
-            return owner_name
+        for source in (slim, target_ball):
+            owner_id = _positive_int(getattr(source, name, None))
+            owner_record = _config_record('eveowners', owner_id)
+            owner_name = _read_display_text(owner_record, ('name', 'ownerName'))
+            if owner_name:
+                return owner_name
+
+    search_text = '%s %s' % (
+        _read_display_text(slim, ('name', 'displayName', 'itemName', 'slimName')) or '',
+        type_name or '',
+    )
+    search_text = search_text.lower()
+    for hint, faction_name in NPC_FACTION_HINTS:
+        if hint in search_text:
+            return faction_name
     return 'Unknown faction'
 
 
@@ -558,63 +617,56 @@ def _request_lock(target_service, item_id):
 class AutoTargetLockWindow(Window):
     default_windowID = 'AutoTargetLockWindow'
     default_caption = 'Auto Target Lock'
-    default_width = 620
-    default_height = 460
+    default_width = 460
+    default_height = 320
+    default_minSize = (420, 280)
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
         Window.ApplyAttributes(self, attributes)
         self._enabled = False
         self._generation = 0
+        self._requested_locks = {}
+        Fill(bgParent=self.content, color=(0.025, 0.04, 0.05, 0.9))
+        header = ContainerAutoSize(parent=self.content, align=uiconst.TOTOP, padding=(12, 8, 12, 10))
+        self._heading = _label(header, 'HOSTILE NPC TARGETING', fontsize=16, padBottom=5)
+        self._subheading = _label(
+            header,
+            'Automatically requests locks inside your ship\'s live targeting range.',
+            color=(0.65, 0.73, 0.77, 1),
+        )
+        footer = ContainerAutoSize(parent=self.content, align=uiconst.TOBOTTOM,
+                                  alignMode=uiconst.TOTOP, padding=(12, 4, 12, 6))
+        self._status = _label(footer, '<color=%s>Auto Target Lock is disabled.</color>' % _COLOR_MUTED,
+                              color=(0.65, 0.73, 0.77, 1))
         self._scroll = ScrollContainer(
             parent=self.content,
             align=uiconst.TOALL,
-            padding=(8, 2, 8, 8),
+            padding=(12, 0, 12, 6),
         )
-        self._body = Container(
-            parent=self._scroll,
-            align=uiconst.TOTOP,
-            height=600,
-        )
-        self._status = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=32,
-            padLeft=10,
-            padTop=8,
-            text='Auto Target Lock is disabled.',
-        )
-        self._details = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=44,
-            padLeft=10,
-            padTop=2,
-            text='Hostile NPCs only. Existing locks are never removed.',
+        self._body = ContainerAutoSize(parent=self._scroll, align=uiconst.TOTOP)
+        targeting = _section(self._body, 'TARGETING STATUS')
+        self._details = _label(
+            targeting,
+            '<color=%s>Waiting for the first scan...</color>' % _COLOR_MUTED,
+            padding=(10, 0, 10, 8),
         )
         self._toggle_button = Button(
-            parent=self._body,
+            parent=targeting,
             align=uiconst.TOTOP,
             label='Enable Auto Target Lock',
             func=self._toggle,
             padLeft=10,
-            height=32,
+            padRight=10,
+            padBottom=8,
+            height=34,
         )
-        Container(parent=self._body, align=uiconst.TOTOP, height=10)
-        EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=24,
-            padLeft=10,
-            text='Enemy details: name | type | faction | distance | lock state | weakness',
-        )
-        self._targets = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=470,
-            padLeft=10,
-            padTop=4,
-            text='Enable Auto Target Lock to scan for hostile NPCs.',
+        rules = _section(self._body, 'SELECTION RULES')
+        _label(
+            rules,
+            'Hostile NPC combat ships only. Player ships, structures, wrecks, and owned drones are ignored. Existing locks stay in place when this feature is disabled.',
+            padding=(10, 0, 10, 8),
+            color=(0.65, 0.73, 0.77, 1),
         )
 
     def _toggle(self, *args):
@@ -622,47 +674,19 @@ class AutoTargetLockWindow(Window):
         self._generation += 1
         if self._enabled:
             self._toggle_button.SetLabel('Disable Auto Target Lock')
-            self._set_status('Auto Target Lock is enabled.')
-            self._set_targets([], 'Scanning for hostile NPCs...')
+            self._set_status('<color=%s>Auto Target Lock is active</color>' % _COLOR_ACTIVE)
             uthread.new(self._run, self._generation)
         else:
             self._toggle_button.SetLabel('Enable Auto Target Lock')
-            self._set_status('Auto Target Lock is disabled.')
-            self._set_targets([], 'Enable Auto Target Lock to scan for hostile NPCs.')
+            self._set_status('<color=%s>Auto Target Lock is disabled</color>' % _COLOR_MUTED)
 
     def _set_status(self, text):
         if not getattr(self, 'destroyed', False):
-            self._status.SetText(text)
+            self._status.text = text
 
     def _set_details(self, text):
         if not getattr(self, 'destroyed', False):
-            self._details.SetText(text)
-
-    def _set_targets(self, records, empty_text=None):
-        if getattr(self, 'destroyed', False):
-            return
-        displayed_count = min(len(records), MAX_DISPLAY_TARGETS)
-        line_count = max(2, displayed_count * 2 + (1 if len(records) > MAX_DISPLAY_TARGETS else 0))
-        self._targets.height = max(60, line_count * 26 + 20)
-        self._body.height = 160 + self._targets.height
-        if not records:
-            self._targets.SetText(empty_text or 'No hostile NPCs currently in range.')
-            return
-        lines = []
-        for record in records[:MAX_DISPLAY_TARGETS]:
-            lines.append(
-                '%s [%s]\n  %s | %s | %s | Weak: %s' % (
-                    record['name'],
-                    record['type'],
-                    record['faction'],
-                    _format_distance(record['distance']),
-                    record['status'],
-                    record['weakness'],
-                )
-            )
-        if len(records) > MAX_DISPLAY_TARGETS:
-            lines.append('... and %d more hostile NPC(s).' % (len(records) - MAX_DISPLAY_TARGETS))
-        self._targets.SetText('\n'.join(lines))
+            self._details.text = text
 
     def _target_records(self, ballpark, target_service, max_range, locked=None, locking=None):
         if max_range <= 0.0:
@@ -683,7 +707,12 @@ class AutoTargetLockWindow(Window):
                 or _is_owned_by_player(slim)
             ):
                 continue
-            if _is_non_combat_target(slim) or _is_structure(slim) or not _is_npc(slim) or not _is_hostile(ballpark, target_service, item_id, slim):
+            if (
+                _is_non_combat_target(slim) or
+                _is_structure(slim) or
+                not _is_npc(slim) or
+                not _is_hostile(ballpark, target_service, item_id, slim)
+            ):
                 continue
             try:
                 target_ball = ballpark.GetBall(item_id)
@@ -692,8 +721,8 @@ class AutoTargetLockWindow(Window):
             distance = _distance(ballpark, own_ship_id, item_id, target_ball)
             if distance is None or distance > max_range * TARGETING_MARGIN:
                 continue
-            type_name = _target_type_name(slim)
-            faction_name = _target_faction_name(slim)
+            type_name = _target_type_name(slim, target_ball)
+            faction_name = _target_faction_name(slim, target_ball, type_name)
             records.append({
                 'distance': distance,
                 'item_id': item_id,
@@ -723,7 +752,6 @@ class AutoTargetLockWindow(Window):
             if own_ship_id is not None and _is_in_warp(ballpark, own_ship_id):
                 locked_count = len(_locked_ids(target_service))
                 self._set_details('Targeting paused while warping. | Locked: %d' % locked_count)
-                self._set_targets([], 'Target scan paused while warping.')
                 return
             locked_ids = _locked_ids(target_service)
             locking_ids = _locking_ids(target_service)
@@ -737,12 +765,23 @@ class AutoTargetLockWindow(Window):
                 locked_ids,
                 locking_ids,
             )
-            self._set_targets(records)
+            now = blue.os.GetWallclockTime()
+            self._requested_locks = dict(
+                (item_id, request_time)
+                for item_id, request_time in self._requested_locks.items()
+                if now - request_time < SCAN_INTERVAL_MS * 3 * 10000
+            )
+            for item_id in locked_ids | locking_ids:
+                self._requested_locks.pop(item_id, None)
             available_slots = _available_target_slots(target_service, locked_count, locking_count)
             if available_slots <= 0:
                 self._set_details('Targeting paused: target slots full. | Locked: %d | Locking: %d' % (locked_count, locking_count))
                 return
             candidates = self._candidate_targets(records, available_slots)
+            candidates = [
+                candidate for candidate in candidates
+                if candidate[1] not in self._requested_locks
+            ][:MAX_LOCK_REQUESTS_PER_SCAN]
             if not candidates:
                 self._set_details('Target range: %.0f m | Locked: %d | Locking: %d | No hostile NPCs in range.' % (max_range, locked_count, locking_count))
                 return
@@ -750,10 +789,10 @@ class AutoTargetLockWindow(Window):
             for distance, item_id in candidates:
                 if _request_lock(target_service, item_id):
                     locked += 1
+                    self._requested_locks[item_id] = now
             self._set_details('Target range: %.0f m | Locked: %d | Locking: %d | Lock requests: %d' % (max_range, locked_count, locking_count, locked))
         except Exception as error:
-            self._set_details('Target scan unavailable: %s' % error)
-            self._set_targets([], 'Target scan unavailable: %s' % error)
+            self._set_details('<color=%s>Target scan unavailable: %s</color>' % (_COLOR_ERROR, error))
 
     def _run(self, generation):
         while self._enabled and generation == self._generation and not getattr(self, 'destroyed', False):

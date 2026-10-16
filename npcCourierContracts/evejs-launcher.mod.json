@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "npccouriercontracts",
   "displayName": "NPC Courier Contracts",
-  "version": "0.6.4",
+  "version": "0.6.6",
   "description": "Generates persistent NPC courier contracts from major trade hubs and active stations.",
   "kind": "loader",
   "supportedBackends": [

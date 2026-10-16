@@ -72,7 +72,7 @@ assert.deepEqual(packageFiles.sort(), [
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npccouriercontracts");
 assert.equal(manifest.displayName, "NPC Courier Contracts");
-assert.equal(manifest.version, "0.6.4");
+assert.equal(manifest.version, "0.6.6");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");

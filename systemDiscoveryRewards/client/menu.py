@@ -7,8 +7,12 @@ import blue
 import evejs_mod_menu as mods
 import uthread
 from carbonui import uiconst
+from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
-from eve.client.script.ui.control.eveLabel import EveLabelMedium
+from carbonui.primitives.container import Container
+from carbonui.primitives.containerAutoSize import ContainerAutoSize
+from carbonui.primitives.fill import Fill
+from eve.client.script.ui.control.eveLabel import Label
 
 
 _WINDOW_ID = 'SystemDiscoveryRewardsWindow'
@@ -26,6 +30,21 @@ _COLOR_ERROR = '0xffff6b6b'
 
 def _color(color, text):
     return '<color=%s>%s</color>' % (color, text)
+
+
+def _label(parent, text='', **kwargs):
+    kwargs.setdefault('align', uiconst.TOTOP)
+    kwargs.setdefault('autoFitToText', True)
+    kwargs.setdefault('fontsize', 13)
+    kwargs.setdefault('state', uiconst.UI_DISABLED)
+    return Label(parent=parent, text=text, **kwargs)
+
+
+def _section(parent, title):
+    panel = ContainerAutoSize(parent=parent, align=uiconst.TOTOP, padBottom=12)
+    Fill(bgParent=panel, color=(0.05, 0.08, 0.1, 0.9))
+    _label(panel, title, fontsize=12, color=(0.45, 0.77, 0.8, 1), padding=(10, 8, 10, 6))
+    return panel
 
 
 def _number(value, default=0.0):
@@ -55,46 +74,42 @@ def _format_isk(value):
 class SystemDiscoveryRewardsWindow(Window):
     default_windowID = _WINDOW_ID
     default_caption = 'System Discovery Rewards'
-    default_width = 480
-    default_height = 420
+    default_width = 460
+    default_height = 460
+    default_minSize = (420, 400)
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
         Window.ApplyAttributes(self, attributes)
         self._closed = False
         self._generation = 0
-        self._summary = EveLabelMedium(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=86,
-            padLeft=10,
-            padTop=8,
-            text=_color(_COLOR_MUTED, 'Loading discovery progress...'),
-        )
-        self._progress = EveLabelMedium(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=74,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._stats = EveLabelMedium(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=104,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._recent = EveLabelMedium(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=120,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
+        Fill(bgParent=self.content, color=(0.025, 0.04, 0.05, 0.9))
+        header = ContainerAutoSize(parent=self.content, align=uiconst.TOTOP, padding=(12, 8, 12, 10))
+        self._hero = _label(header, 'SYSTEM DISCOVERY', fontsize=16, padBottom=5)
+        self._hero_meta = _label(header, 'Loading explorer progression...',
+                                 color=(0.65, 0.73, 0.77, 1), padBottom=8)
+        track = Container(parent=header, align=uiconst.TOTOP, height=6, padBottom=2)
+        Fill(bgParent=track, color=(0.15, 0.21, 0.24, 1))
+        self._gauge = Fill(parent=track, align=uiconst.TOLEFT_PROP, width=0, color=(0.32, 0.84, 0.83, 1))
+        footer = ContainerAutoSize(parent=self.content, align=uiconst.TOBOTTOM,
+                                  alignMode=uiconst.TOTOP, padding=(12, 4, 12, 6))
+        self._status = _label(footer, 'Updates every 5 seconds', color=(0.65, 0.73, 0.77, 1))
+        self._scroll = ScrollContainer(parent=self.content, align=uiconst.TOALL, padding=(12, 0, 12, 6))
+        self._body = ContainerAutoSize(parent=self._scroll, align=uiconst.TOTOP)
+        overview = _section(self._body, 'DISCOVERY RECORD')
+        self._summary = _label(overview, _color(_COLOR_MUTED, 'Loading discovery progress...'),
+                               padding=(10, 0, 10, 8))
+        progress = _section(self._body, 'LEVEL PROGRESS')
+        self._progress = _label(progress, '', padding=(10, 0, 10, 4))
+        progress_track = Container(parent=progress, align=uiconst.TOTOP, height=6,
+                                   padding=(10, 0, 10, 8))
+        Fill(bgParent=progress_track, color=(0.15, 0.21, 0.24, 1))
+        self._progress_gauge = Fill(parent=progress_track, align=uiconst.TOLEFT_PROP,
+                                    width=0, color=(0.32, 0.84, 0.83, 1))
+        rewards = _section(self._body, 'EXPLORATION REWARDS')
+        self._stats = _label(rewards, '', padding=(10, 0, 10, 8))
+        recent = _section(self._body, 'RECENT DISCOVERIES')
+        self._recent = _label(recent, '', padding=(10, 0, 10, 8))
         self._load()
         uthread.new(self._refresh_loop, self._generation)
 
@@ -110,11 +125,10 @@ class SystemDiscoveryRewardsWindow(Window):
             state = self._decode(sm.RemoteSvc(_SERVICE).GetDiscoveryProgress({}))
             if not self.destroyed:
                 self._render(state)
+                self._status.text = 'Updates every 5 seconds'
         except Exception as error:
             if not self.destroyed:
-                self._summary.SetText(
-                    _color(_COLOR_ERROR, 'Discovery progress unavailable: %s' % error)
-                )
+                self._status.text = _color(_COLOR_ERROR, 'Discovery progress unavailable: %s' % error)
 
     def _refresh_loop(self, generation):
         while not self._closed and generation == self._generation:
@@ -139,31 +153,26 @@ class SystemDiscoveryRewardsWindow(Window):
         total_plex = _integer(state.get('totalPlex', 0) or 0)
         if level >= max_level:
             progress_text = 'MAX LEVEL - %s total XP' % total_xp
+            fraction = 1.0
         else:
+            fraction = max(0.0, min(1.0, percent / 100.0))
             progress_text = '%s / %s XP this level | %s%% | %s XP to next' % (
                 xp_into,
                 xp_into + xp_next,
                 _decimal_text(percent),
                 xp_next,
             )
-        self._summary.SetText(
-            '%s %s / %s\n%s %s\n%s %s' % (
-                _color(_COLOR_LABEL, 'Explorer Level:'),
-                _color(_COLOR_ACTIVE, level),
-                _color(_COLOR_MUTED, max_level),
-                _color(_COLOR_LABEL, 'Total XP:'),
-                _color(_COLOR_XP, total_xp),
-                _color(_COLOR_LABEL, 'Systems discovered:'),
-                _color(_COLOR_ACTIVE, discovered),
-            )
+        self._hero.text = 'SYSTEM DISCOVERY  /  LEVEL %s' % level
+        self._hero_meta.text = 'Level %s of %s  |  %s lifetime XP' % (
+            level, max_level, '{:,}'.format(total_xp))
+        self._gauge.width = min(1.0, ((level - 1) + fraction) / max_level) if max_level > 0 else 0
+        self._summary.text = '%s %s' % (
+            _color(_COLOR_LABEL, 'Systems discovered:'),
+            _color(_COLOR_ACTIVE, '{:,}'.format(discovered)),
         )
-        self._progress.SetText(
-            '%s\n%s' % (
-                _color(_COLOR_LABEL, 'Level Progress'),
-                _color(_COLOR_XP, progress_text),
-            )
-        )
-        self._stats.SetText(
+        self._progress.text = _color(_COLOR_XP, progress_text)
+        self._progress_gauge.width = fraction
+        self._stats.text = (
             '%s %s ISK\n%s %s SP\n%s %s PLEX' % (
                 _color(_COLOR_LABEL, 'Total ISK earned:'),
                 _color(_COLOR_ACTIVE, _format_isk(total_isk)),
@@ -175,24 +184,24 @@ class SystemDiscoveryRewardsWindow(Window):
         )
         recent = state.get('recentDiscoveries') or []
         if recent:
-            lines = [_color(_COLOR_LABEL, 'Recent discoveries:')]
+            lines = []
             for entry in recent[:5]:
                 name = entry.get('systemName', 'Unknown system')
                 reward = entry.get('reward') or {}
                 lines.append(
-                    '%s: +%s ISK | +%s SP | +%s XP | +%s PLEX' % (
-                        name,
-                        _format_isk(reward.get('isk', 0) or 0),
-                        _integer(reward.get('skillPoints', 0) or 0),
-                        _integer(reward.get('xp', 0) or 0),
-                        _integer(reward.get('plex', 0) or 0),
+                    '%s\n%s' % (
+                        _color(_COLOR_ACTIVE, name),
+                        _color(_COLOR_MUTED, '+%s ISK  |  +%s SP  |  +%s XP  |  +%s PLEX' % (
+                            _format_isk(reward.get('isk', 0) or 0),
+                            _integer(reward.get('skillPoints', 0) or 0),
+                            _integer(reward.get('xp', 0) or 0),
+                            _integer(reward.get('plex', 0) or 0),
+                        )),
                     )
                 )
-            self._recent.SetText('\n'.join(lines))
+            self._recent.text = '\n'.join(lines)
         else:
-            self._recent.SetText(
-                _color(_COLOR_MUTED, 'Enter a new known-space system to begin discovering.')
-            )
+            self._recent.text = _color(_COLOR_MUTED, 'Enter a new known-space system to begin discovering.')
 
     def Close(self, *args, **kwargs):
         global _window

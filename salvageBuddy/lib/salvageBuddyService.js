@@ -10,6 +10,7 @@ const characterState = require(serverPath("services", "character", "characterSta
 const walletState = require(serverPath("services", "account", "walletState"));
 const chatHub = require(serverPath("services", "chat", "chatHub"));
 const spaceRuntime = require(serverPath("space", "runtime"));
+const worldData = require(serverPath("space", "worldData"));
 const lootEntitlement = require(serverPath("services", "_shared", "spaceLootEntitlement"));
 const invBrokerItemCustody = require(serverPath(
   "services", "inventory", "invBrokerItemCustody",
@@ -20,6 +21,9 @@ const deliveryItemCustody = require(serverPath(
 const itemCustody = require(serverPath("services", "inventory", "itemCustody"));
 const {resolveSessionCharacterID} = require(serverPath(
   "services", "_shared", "sessionIdentity",
+));
+const {unwrapMarshalValue} = require(serverPath(
+  "services", "_shared", "serviceHelpers",
 ));
 const {resolveDataRootPath} = require(serverPath("config", "dataRoot"));
 const {getTypeEffectRecords, listFittedItemsForLocation} = require(serverPath(
@@ -91,6 +95,10 @@ function systemIDFromSession(session) {
   return positive(session && session._space && session._space.systemID, 0);
 }
 
+function stationIDFromSession(session) {
+  return positive(session && (session.stationid || session.stationID), 0);
+}
+
 function isInSpaceSession(session) {
   return Boolean(session && shipIDFromSession(session) && systemIDFromSession(session) &&
     !(
@@ -140,6 +148,70 @@ class SalvageBuddyService extends BaseService {
     return itemStore.getActiveShipItem(characterID) || null;
   }
 
+  _stationShips(characterID, session) {
+    const stationID = stationIDFromSession(session);
+    if (!stationID) return [];
+    const station = worldData.getStationByID(stationID);
+    const stationName = String(station && (
+      station.stationName || station.itemName || station.name || station.locationName
+    ) || "Station hangar");
+    const activeShipID = shipIDFromSession(session) ||
+      positive(itemStore.getActiveShipItem(characterID) && itemStore.getActiveShipItem(characterID).itemID);
+    return itemStore.getCharacterHangarShipItems(characterID, stationID)
+      .filter((ship) => positive(ship.itemID) !== activeShipID)
+      .filter((ship) => worldData.getStationByID(positive(ship.locationID)))
+      .map((ship) => {
+        const metadata = itemStore.getItemMetadata(ship.typeID, ship.itemName);
+        let cargoVolume = 0;
+        let cargoQuantity = 0;
+        try {
+          for (const item of itemStore.listContainerItems(characterID, ship.itemID, CARGO_HOLD_FLAG)) {
+            const quantity = quantityOf(item);
+            cargoQuantity += quantity;
+            cargoVolume += Math.max(0, finite(itemStore.getInventoryItemUnitVolume(item), 0)) * quantity;
+          }
+        } catch (_) {
+          cargoVolume = 0;
+          cargoQuantity = 0;
+        }
+        return {
+          shipID: positive(ship.itemID),
+          name: String(ship.itemName || metadata && metadata.name || "Ship"),
+          typeID: positive(ship.typeID),
+          typeName: String(metadata && metadata.name || "Ship"),
+          stationName,
+          cargo: {
+            quantity: cargoQuantity,
+            volume: Math.round(cargoVolume * 1000) / 1000,
+            capacity: Math.max(0, Number(ship.capacity || metadata && metadata.capacity) || 0),
+          },
+        };
+      });
+  }
+
+  _selectedCollectionShip(characterID) {
+    const character = this._character(characterID);
+    const shipID = positive(character.collectionShipID);
+    if (!shipID) return null;
+    const ship = itemStore.findCharacterShipItem(characterID, shipID);
+    const stationID = positive(ship && ship.locationID);
+    const activeRequest = this._active.get(characterID);
+    const deployed = activeRequest && activeRequest.collectionShip &&
+      positive(activeRequest.collectionShip.shipID) === shipID
+      ? activeRequest.collectionShip
+      : null;
+    if (!ship || (!deployed && (positive(ship.flagID) !== itemStore.ITEM_FLAGS.HANGAR ||
+        !worldData.getStationByID(stationID)))) {
+      return null;
+    }
+    const metadata = itemStore.getItemMetadata(ship.typeID, ship.itemName);
+    return {
+      shipID,
+      name: String(ship.itemName || metadata && metadata.name || "Ship"),
+      stationID: deployed ? positive(deployed.stationID) : stationID,
+    };
+  }
+
   _sceneForSession(session) {
     return typeof spaceRuntime.getSceneForSession === "function"
       ? spaceRuntime.getSceneForSession(session)
@@ -159,6 +231,7 @@ class SalvageBuddyService extends BaseService {
     const characterID = characterIDFromSession(session);
     const character = this._character(characterID);
     const request = this._active.get(characterID) || null;
+    const collectionShip = request && request.collectionShip || null;
     const now = Date.now();
     return JSON.stringify({
       enabled: this._config.enabled === true,
@@ -170,6 +243,14 @@ class SalvageBuddyService extends BaseService {
       ),
       active: Boolean(request),
       canSendAway: Boolean(request),
+      isDocked: stationIDFromSession(session) > 0,
+      collectionShip: this._selectedCollectionShip(characterID),
+      availableCollectionShips: this._stationShips(characterID, session),
+      collectionShipInSpace: Boolean(collectionShip && collectionShip.inSpace),
+      collectionShipReturning: Boolean(collectionShip && collectionShip.returning),
+      collectionShipRecallRequested: Boolean(request && request.collectionRecallRequested),
+      canRecallCollectionShip: Boolean(collectionShip && collectionShip.inSpace &&
+        !collectionShip.returning && !(request && request.collectionRecallRequested)),
       stage: request ? request.stage : "idle",
       targetsProcessed: request ? request.targetsProcessed : 0,
       targetsFound: request ? request.targetsFound : 0,
@@ -183,6 +264,38 @@ class SalvageBuddyService extends BaseService {
   }
 
   Handle_GetState(_args, session) {
+    return this._stateForSession(session);
+  }
+
+  Handle_SetCollectionShip(args, session) {
+    const characterID = characterIDFromSession(session);
+    if (!characterID) throw new Error("SALVAGE_BUDDY_CHARACTER_REQUIRED");
+    const request = unwrapMarshalValue(Array.isArray(args) ? args[0] : args) || {};
+    const shipID = positive(request.shipID);
+    const character = this._character(characterID);
+    if (this._active.has(characterID)) {
+      throw new Error("SALVAGE_BUDDY_ACTIVE");
+    }
+    if (!shipID) {
+      character.collectionShipID = 0;
+      this._saveState();
+      return this._stateForSession(session);
+    }
+    const stationID = stationIDFromSession(session);
+    if (!stationID) throw new Error("SALVAGE_BUDDY_MUST_BE_DOCKED");
+    const ship = itemStore.findCharacterShipItem(characterID, shipID);
+    if (!ship || positive(ship.locationID) !== stationID ||
+        positive(ship.flagID) !== itemStore.ITEM_FLAGS.HANGAR ||
+        !worldData.getStationByID(stationID)) {
+      throw new Error("SALVAGE_BUDDY_COLLECTION_SHIP_NOT_IN_STATION_HANGAR");
+    }
+    const activeShipID = shipIDFromSession(session) ||
+      positive(itemStore.getActiveShipItem(characterID) && itemStore.getActiveShipItem(characterID).itemID);
+    if (shipID === activeShipID) {
+      throw new Error("SALVAGE_BUDDY_ACTIVE_SHIP_CANNOT_BE_COLLECTION_SHIP");
+    }
+    character.collectionShipID = shipID;
+    this._saveState();
     return this._stateForSession(session);
   }
 
@@ -349,6 +462,216 @@ class SalvageBuddyService extends BaseService {
       arrivalPoint: origin,
       departurePoint: position,
     };
+  }
+
+  async _spawnCollectionShip(session, request) {
+    const character = this._character(request.characterID);
+    const shipID = positive(character.collectionShipID);
+    if (!shipID || shipID === request.playerShipID) return null;
+    const ship = itemStore.findCharacterShipItem(request.characterID, shipID);
+    const stationID = positive(ship && ship.locationID);
+    if (!ship || positive(ship.flagID) !== itemStore.ITEM_FLAGS.HANGAR ||
+        !worldData.getStationByID(stationID)) {
+      return null;
+    }
+    const systemID = systemIDFromSession(session);
+    const scene = this._sceneForSession(session);
+    const playerEntity = scene && scene.getShipEntityForSession
+      ? scene.getShipEntityForSession(session)
+      : null;
+    if (!systemID || !scene || !playerEntity) return null;
+    const origin = vector(playerEntity.position) || {x: 0, y: 0, z: 0};
+    const direction = vector(playerEntity.direction) || {x: 1, y: 0, z: 0};
+    const directionLength = Math.hypot(direction.x, direction.y, direction.z) || 1;
+    const farPoint = {
+      x: origin.x + direction.x / directionLength * this._config.spawnDistanceAU * AU_METERS,
+      y: origin.y + direction.y / directionLength * this._config.spawnDistanceAU * AU_METERS,
+      z: origin.z + direction.z / directionLength * this._config.spawnDistanceAU * AU_METERS,
+    };
+    const moveResult = itemStore.moveShipToSpace(shipID, systemID, {
+      systemID,
+      position: farPoint,
+      targetPoint: farPoint,
+      velocity: {x: 0, y: 0, z: 0},
+      direction,
+      speedFraction: 0,
+      mode: "STOP",
+      targetEntityID: null,
+      followRange: 0,
+      orbitDistance: 0,
+    });
+    if (!moveResult || moveResult.success !== true) return null;
+    let spawned;
+    try {
+      spawned = spaceRuntime.spawnDynamicInventoryEntity(
+        scene.sceneDescriptor || systemID,
+        shipID,
+        {
+          sceneDescriptor: scene.sceneDescriptor || undefined,
+          broadcast: true,
+          broadcastOptions: {freshAcquire: true},
+        },
+      );
+    } catch (error) {
+      itemStore.dockShipToLocation(shipID, stationID);
+      log.warn(`[${MOD_ID}] collection ship spawn failed ship=${shipID}: ${error.message}`);
+      return null;
+    }
+    if (!spawned || spawned.success !== true || !spawned.data || !spawned.data.entity) {
+      itemStore.dockShipToLocation(shipID, stationID);
+      return null;
+    }
+    const collectionShip = {
+      shipID,
+      stationID,
+      systemID,
+      scene,
+      departurePoint: farPoint,
+      arrivalPoint: origin,
+      inSpace: true,
+      returning: false,
+      initialCargoItemIDs: new Set(
+        itemStore.listContainerItems(request.characterID, shipID, CARGO_HOLD_FLAG)
+          .map((item) => positive(item.itemID)),
+      ),
+    };
+    request.collectionShip = collectionShip;
+    if (typeof scene.startSessionlessWarpIngress !== "function") {
+      await this._returnCollectionShip(request, session, {immediate: true, notify: false});
+      return null;
+    }
+    const warpResult = scene.startSessionlessWarpIngress(
+      shipID,
+      origin,
+      {
+        stopDistance: 10000,
+        forceImmediateStart: true,
+        ingressDurationMs: 2500,
+        visibilitySuppressMs: 250,
+        broadcastWarpStartToVisibleSessions: true,
+      },
+    );
+    if (!warpResult || warpResult.success !== true) {
+      await this._returnCollectionShip(request, session, {immediate: true, notify: false});
+      return null;
+    }
+    const deadline = Date.now() + this._config.approachTimeoutMs;
+    while (Date.now() < deadline) {
+      const entity = scene.getEntityByID(shipID);
+      const player = scene.getEntityByID(request.playerShipID);
+      if (!entity || !player) break;
+      if (!this._isEntityWarping(entity) && distanceMeters(entity.position, player.position) <= 11000) {
+        return collectionShip;
+      }
+      await delay(this._config.pollIntervalMs);
+    }
+    await this._returnCollectionShip(request, session, {immediate: true, notify: false});
+    return null;
+  }
+
+  async _returnCollectionShip(request, session = null, options = {}) {
+    const collectionShip = request && request.collectionShip;
+    if (!collectionShip || collectionShip.returned === true) return true;
+    if (collectionShip.returnPromise) return collectionShip.returnPromise;
+    if (collectionShip.returning === true) return true;
+    collectionShip.returning = true;
+    const returnPromise = this._performCollectionShipReturn(
+      request,
+      session,
+      options,
+      collectionShip,
+    );
+    collectionShip.returnPromise = returnPromise;
+    try {
+      return await returnPromise;
+    } catch (error) {
+      collectionShip.returning = false;
+      log.warn(`[${MOD_ID}] collection ship return failed ship=${collectionShip.shipID}: ${error.message}`);
+      return false;
+    } finally {
+      if (collectionShip.returnPromise === returnPromise) collectionShip.returnPromise = null;
+    }
+  }
+
+  async _performCollectionShipReturn(request, session, options, collectionShip) {
+    if (options.flushCargo !== false) {
+      await this._transferSalvageToDestination(request, session);
+    }
+    const shipID = positive(collectionShip.shipID);
+    const stationID = positive(collectionShip.stationID);
+    const scene = collectionShip.scene || this._serviceShipScene(request);
+    const cargoChanges = [];
+    const excluded = collectionShip.initialCargoItemIDs instanceof Set
+      ? collectionShip.initialCargoItemIDs
+      : new Set();
+    for (const item of itemStore.listContainerItems(request.characterID, shipID, CARGO_HOLD_FLAG)) {
+      if (excluded.has(positive(item.itemID))) continue;
+      const result = invBrokerItemCustody.moveItem({
+        item,
+        ownerID: request.characterID,
+        locationID: stationID,
+        flagID: itemStore.ITEM_FLAGS.HANGAR,
+        actor: request.characterID,
+        idempotencyKey: `${MOD_ID}:${request.id}:station-delivery:${shipID}:${item.itemID}`,
+      });
+      if (result && result.success === true) {
+        cargoChanges.push(...((result.data && result.data.changes) || result.changes || []));
+      }
+    }
+    this._syncChanges(session, cargoChanges, stationID, ["Station", stationID, "Hangar"]);
+
+    if (!options.immediate && scene && scene.getEntityByID(shipID) &&
+        typeof scene.startSessionlessWarpIngress === "function") {
+      const warpResult = scene.startSessionlessWarpIngress(
+        shipID,
+        collectionShip.departurePoint,
+        {
+          forceImmediateStart: true,
+          ingressDurationMs: 2500,
+          visibilitySuppressMs: 250,
+          broadcastWarpStartToVisibleSessions: true,
+        },
+      );
+      if (warpResult && warpResult.success === true) {
+        if (this._config.departureDelayMs > 0) await delay(this._config.departureDelayMs);
+        await delay(2500);
+      }
+    }
+    let removed = true;
+    if (scene && scene.getEntityByID(shipID) && typeof scene.removeDynamicEntity === "function") {
+      const removeResult = scene.removeDynamicEntity(shipID, {
+        broadcast: true,
+        persistSpaceState: false,
+        allowSessionOwned: true,
+      });
+      removed = Boolean(removeResult && removeResult.success === true);
+    }
+    if (!removed && typeof spaceRuntime.removeDynamicEntity === "function") {
+      const removeResult = spaceRuntime.removeDynamicEntity(
+        collectionShip.systemID,
+        shipID,
+        {sceneDescriptor: scene && scene.sceneDescriptor, broadcast: true, persistSpaceState: false},
+      );
+      removed = Boolean(removeResult && removeResult.success === true);
+    }
+    if (!removed) {
+      collectionShip.returning = false;
+      log.warn(`[${MOD_ID}] collection ship scene removal failed ship=${shipID}`);
+      return false;
+    }
+    const dockResult = itemStore.dockShipToLocation(shipID, stationID);
+    if (!dockResult || dockResult.success !== true) {
+      collectionShip.returning = false;
+      log.warn(`[${MOD_ID}] could not dock collection ship=${shipID} at station=${stationID}`);
+      return false;
+    }
+    collectionShip.inSpace = false;
+    collectionShip.returned = true;
+    request.collectionShip = null;
+    if (options.notify !== false) {
+      this._send(session, `Collection ship returned to station ${stationID}; recovered loot was deposited in the station hangar.`);
+    }
+    return true;
   }
 
   _serviceShipEntity(request) {
@@ -575,47 +898,111 @@ class SalvageBuddyService extends BaseService {
     );
   }
 
-  async _transferSalvageToPlayer(request, session = null) {
-    // Native drone salvage normally deposits directly into the player's active
-    // ship. The explicit move is still needed during cancellation because a
-    // drone may be carrying the last cycle's salvage when Send Away is pressed.
+  _collectionShipHasCapacity(collectionShipID, incomingItem) {
+    const ship = itemStore.findShipItemById(collectionShipID);
+    if (!ship) return false;
+    const metadata = itemStore.getItemMetadata(ship.typeID, ship.itemName);
+    const capacity = Math.max(0, Number(ship.capacity || metadata && metadata.capacity) || 0);
+    if (capacity <= 0) return true;
+    const used = itemStore.listContainerItems(null, collectionShipID, CARGO_HOLD_FLAG)
+      .reduce((sum, item) => sum + itemStore.getInventoryItemUnitVolume(item) * quantityOf(item), 0);
+    const incoming = itemStore.getInventoryItemUnitVolume(incomingItem) * quantityOf(incomingItem);
+    return used + incoming <= capacity + 0.000001;
+  }
+
+  _moveLootItem(request, session, item, destinationID, destinationFlagID, key) {
+    if (!item || positive(destinationID) <= 0) return {success: false};
+    const result = sameOwner(item, request.characterID)
+      ? invBrokerItemCustody.moveItem({
+          item,
+          ownerID: request.characterID,
+          locationID: destinationID,
+          flagID: destinationFlagID,
+          actor: request.characterID,
+          idempotencyKey: key,
+        })
+      : deliveryItemCustody.transferItem({
+          item,
+          ownerID: request.characterID,
+          locationID: destinationID,
+          flagID: destinationFlagID,
+          actor: request.characterID,
+          reason: itemCustody.CUSTODY_REASON.INV_BROKER_OWNER_TRANSFER,
+          idempotencyKey: key,
+        });
+    if (!result || result.success !== true) return result || {success: false};
+    const changes = (result.data && result.data.changes) || result.changes || [];
+    const isShipCargo = destinationFlagID === CARGO_HOLD_FLAG;
+    this._syncChanges(
+      session,
+      changes,
+      destinationID,
+      isShipCargo
+        ? ["Ship", destinationID, "ShipCargo"]
+        : ["Station", destinationID, "Hangar"],
+    );
+    if (isShipCargo) this._refreshPlayerCargo(session, request.characterID, destinationID);
+    return result;
+  }
+
+  _deliverLootItem(request, session, item, key) {
+    const collectionShip = request.collectionShip && !request.collectionShip.returning
+      ? request.collectionShip
+      : null;
+    if (collectionShip && this._collectionShipHasCapacity(collectionShip.shipID, item)) {
+      const result = this._moveLootItem(
+        request, session, item, collectionShip.shipID, CARGO_HOLD_FLAG, `${key}:collector`,
+      );
+      if (result && result.success === true) return {success: true, destination: "collector"};
+    }
+    if (collectionShip) {
+      if (!request.collectionHoldFullNotified) {
+        this._send(session, "The collection ship cargo hold is full; additional loot is going to your active ship.");
+        request.collectionHoldFullNotified = true;
+      }
+    }
+    const playerResult = this._moveLootItem(
+      request, session, item, request.playerShipID, CARGO_HOLD_FLAG, `${key}:player`,
+    );
+    if (playerResult && playerResult.success === true) return {success: true, destination: "player"};
+    if (collectionShip && positive(collectionShip.stationID) > 0) {
+      const stationResult = this._moveLootItem(
+        request, session, item, collectionShip.stationID, itemStore.ITEM_FLAGS.HANGAR,
+        `${key}:station-overflow`,
+      );
+      if (stationResult && stationResult.success === true) {
+        if (!request.collectionOverflowNotified) {
+          this._send(session, "Loot that fit in neither ship was delivered directly to the collection ship's station hangar.");
+          request.collectionOverflowNotified = true;
+        }
+        return {success: true, destination: "station"};
+      }
+    }
+    return {success: false, stopReason: "cargo"};
+  }
+
+  async _transferSalvageToDestination(request, session = null) {
+    // Drone salvage remains in each temporary drone's cargo until SalvageBuddy
+    // unloads it. Route it at each completed target and again during recall.
     if (!request || positive(request.playerShipID) <= 0) return 0;
     const sourceIDs = [
       positive(request.serviceShipID),
       ...(request.deployedDroneIDs || []).map((itemID) => positive(itemID)),
     ].filter(Boolean);
     let moved = 0;
-    const changes = [];
     for (const sourceID of [...new Set(sourceIDs)]) {
       const contents = itemStore.listContainerItems(null, sourceID, CARGO_HOLD_FLAG);
       for (const content of contents) {
         const idempotencyKey = `${MOD_ID}:${request.id}:service-cargo:${sourceID}:${content.itemID}`;
-        const result = sameOwner(content, request.characterID)
-          ? invBrokerItemCustody.moveItem({
-              item: content,
-              ownerID: request.characterID,
-              locationID: request.playerShipID,
-              flagID: CARGO_HOLD_FLAG,
-              actor: request.characterID,
-              idempotencyKey,
-            })
-          : deliveryItemCustody.transferItem({
-              item: content,
-              ownerID: request.characterID,
-              locationID: request.playerShipID,
-              flagID: CARGO_HOLD_FLAG,
-              actor: request.characterID,
-              reason: itemCustody.CUSTODY_REASON.INV_BROKER_OWNER_TRANSFER,
-              idempotencyKey,
-            });
-        if (!result || result.success !== true) continue;
-        moved += quantityOf(content);
-        changes.push(...((result.data && result.data.changes) || result.changes || []));
+        const result = this._deliverLootItem(request, session, content, idempotencyKey);
+        if (result.success) moved += quantityOf(content);
       }
     }
-    this._syncChanges(session, changes, request.playerShipID);
-    if (moved > 0) this._refreshPlayerCargo(session, request.characterID, request.playerShipID);
     return moved;
+  }
+
+  async _transferSalvageToPlayer(request, session = null) {
+    return this._transferSalvageToDestination(request, session);
   }
 
   _isCargoContainerTarget(targetEntity, session) {
@@ -670,7 +1057,7 @@ class SalvageBuddyService extends BaseService {
     request.targetsRemaining = Array.isArray(targets) ? targets.length : 0;
   }
 
-  _syncChanges(session, changes, shipID) {
+  _syncChanges(session, changes, locationID, locationContext = null) {
     if (!session || !Array.isArray(changes)) return;
     for (const change of changes) {
       const item = change && (change.item || change.previousData);
@@ -679,7 +1066,7 @@ class SalvageBuddyService extends BaseService {
         session,
         item,
         change.previousData || change.previousState || {},
-        {locationContext: ["Ship", shipID, "ShipCargo"]},
+        {locationContext: locationContext || ["Ship", locationID, "ShipCargo"]},
       );
     }
   }
@@ -698,38 +1085,15 @@ class SalvageBuddyService extends BaseService {
 
   async _collectContainer(request, session, targetEntity) {
     const characterID = request.characterID;
-    const playerShipID = request.playerShipID;
     const targetID = positive(targetEntity.itemID);
     const contents = itemStore.listContainerItems(null, targetID, null);
     let moved = 0;
-    const changes = [];
     for (const content of contents) {
       const idempotencyKey = `${MOD_ID}:${request.id}:container:${targetID}:${content.itemID}`;
-      const result = sameOwner(content, characterID)
-        ? invBrokerItemCustody.moveItem({
-            item: content,
-            ownerID: characterID,
-            locationID: playerShipID,
-            flagID: CARGO_HOLD_FLAG,
-            actor: characterID,
-            idempotencyKey,
-          })
-        : deliveryItemCustody.transferItem({
-            item: content,
-            ownerID: characterID,
-            locationID: playerShipID,
-            flagID: CARGO_HOLD_FLAG,
-            actor: characterID,
-            reason: itemCustody.CUSTODY_REASON.INV_BROKER_OWNER_TRANSFER,
-            idempotencyKey,
-          });
-      if (!result || result.success !== true) continue;
-      moved += quantityOf(content);
-      changes.push(...((result.data && result.data.changes) || result.changes || []));
+      const result = this._deliverLootItem(request, session, content, idempotencyKey);
+      if (result.success) moved += quantityOf(content);
     }
-    this._syncChanges(session, changes, playerShipID);
-    this._refreshPlayerCargo(session, characterID, playerShipID);
-    return {success: moved > 0, moved, changes};
+    return {success: moved > 0, moved};
   }
 
   _salvagerEffectRecord() {
@@ -1253,6 +1617,10 @@ class SalvageBuddyService extends BaseService {
     const source = this._serviceShipEntity(request);
     const serviceShipItem = itemStore.findItemById(request.serviceShip.serviceShipID);
     const playerShip = itemStore.findItemById(request.playerShipID);
+    const collectionShip = request.collectionShip && !request.collectionShip.returning
+      ? request.collectionShip
+      : null;
+    const rewardLocationID = collectionShip ? collectionShip.shipID : request.playerShipID;
     const effectRecord = this._salvagerEffectRecord();
     if (!source || !serviceShipItem || !playerShip || !effectRecord || workers.salvagers.length <= 0) {
       return {success: false, stopReason: "module"};
@@ -1308,16 +1676,16 @@ class SalvageBuddyService extends BaseService {
             getEntityRuntimeSkillMap: () => skillMap,
             resolveSession: () => session,
             suppressSalvageMessages: true,
-            salvageRewardLocationID: request.playerShipID,
+            salvageRewardLocationID: rewardLocationID,
             syncInventoryChangesToSession: (ownerSession, changes) =>
-              this._syncChanges(ownerSession, changes, request.playerShipID),
+              this._syncChanges(ownerSession, changes, rewardLocationID),
           },
         });
         if (result && result.stopReason === "cargo") {
           return {success: false, stopReason: "cargo", data: result.data};
         }
         if (result && result.data && result.data.salvaged === true) {
-          this._refreshPlayerCargo(session, request.characterID, request.playerShipID);
+          this._refreshPlayerCargo(session, request.characterID, rewardLocationID);
           return {success: true, salvaged: true, data: result.data};
         }
       }
@@ -1334,7 +1702,6 @@ class SalvageBuddyService extends BaseService {
     const source = this._serviceShipEntity(request);
     if (request.droneOnly === true) {
       if (scene && source) {
-        await this._transferSalvageToPlayer(request, session);
         for (const drone of request.deployedDrones || []) {
           const liveDrone = scene.getEntityByID(drone.itemID);
           if (!liveDrone) continue;
@@ -1342,18 +1709,20 @@ class SalvageBuddyService extends BaseService {
         }
         await this._waitForDroneReturn(request, 30000);
       }
+      await this._transferSalvageToDestination(request, session);
       await this._removeServiceDrones(request, session);
+      await this._returnCollectionShip(request, session);
       return;
     }
     if (scene && source) {
-      await this._transferSalvageToPlayer(request, session);
+      await this._transferSalvageToDestination(request, session);
       for (const drone of request.deployedDrones || []) {
         const liveDrone = scene.getEntityByID(drone.itemID);
         if (!liveDrone) continue;
         this._sendDroneHome(scene, source, liveDrone);
       }
       await this._waitForDroneReturn(request, 30000);
-      await this._transferSalvageToPlayer(request, session);
+      await this._transferSalvageToDestination(request, session);
     }
     if (!scene || !serviceShip.departurePoint || typeof scene.startSessionlessWarpIngress !== "function") {
       await this._removeServiceShip(request, session);
@@ -1376,6 +1745,7 @@ class SalvageBuddyService extends BaseService {
     if (this._config.departureDelayMs > 0) await delay(this._config.departureDelayMs);
     await delay(2500);
     await this._removeServiceShip(request, session);
+    await this._returnCollectionShip(request, session);
   }
 
   async _removeServiceDrones(request, session = null) {
@@ -1441,10 +1811,15 @@ class SalvageBuddyService extends BaseService {
     const serviceShip = request && request.serviceShip;
     if (request && request.droneOnly === true) {
       await this._waitForDroneCargo(request, 5000);
+      await this._transferSalvageToDestination(request, session);
       await this._removeServiceDrones(request, session);
+      await this._returnCollectionShip(request, session);
       return true;
     }
-    if (!serviceShip) return true;
+    if (!serviceShip) {
+      await this._returnCollectionShip(request, session);
+      return true;
+    }
     const scene = this._serviceShipScene(request);
     await this._waitForDroneCargo(request, 5000);
     await this._transferSalvageToPlayer(request, session);
@@ -1487,6 +1862,7 @@ class SalvageBuddyService extends BaseService {
       itemStore.removeInventoryItem(serviceShip.serviceShipID, {removeContents: true});
     }
     request.serviceShip = null;
+    await this._returnCollectionShip(request, session);
     return removed;
   }
 
@@ -1506,6 +1882,12 @@ class SalvageBuddyService extends BaseService {
       request.stage = "spawning";
       if (request.cancelRequested === true) return await this._cancelRequest(request, session);
       if (!request.droneScene || !request.systemID) throw new Error("PLAYER_SCENE_NOT_FOUND");
+      if (positive(this._character(request.characterID).collectionShipID) > 0) {
+        request.collectionShip = await this._spawnCollectionShip(session, request);
+        if (!request.collectionShip) {
+          this._send(session, "The selected collection ship is unavailable; SalvageBuddy will deliver loot to your active ship.");
+        }
+      }
       request.deployedDrones = await this._spawnPlayerServiceDrones(request, session);
       request.deployedDroneIDs = request.deployedDrones.map((drone) => positive(drone.itemID));
       if (request.deployedDrones.length <= 0) throw new Error("SALVAGE_DRONE_SPAWN_FAILED");
@@ -1514,6 +1896,9 @@ class SalvageBuddyService extends BaseService {
       const deadline = Date.now() + this._config.maxServiceDurationMs;
       while (Date.now() < deadline) {
         if (request.cancelRequested === true) return await this._cancelRequest(request, session);
+        if (request.collectionRecallRequested === true && request.collectionShip) {
+          await this._returnCollectionShip(request, session);
+        }
         const targets = this._eligibleTargets(request, session);
         this._recordTargetProgress(request, targets);
         if (targets.length <= 0) break;
@@ -1531,6 +1916,10 @@ class SalvageBuddyService extends BaseService {
         if (!result || result.success !== true) {
           this._send(session, "SalvageBuddy could not complete a target and is returning.");
           break;
+        }
+        await this._transferSalvageToDestination(request, session);
+        if (request.collectionRecallRequested === true && request.collectionShip) {
+          await this._returnCollectionShip(request, session);
         }
         request.targetsProcessed += 1;
         request.targetID = 0;
@@ -1570,6 +1959,12 @@ class SalvageBuddyService extends BaseService {
     try {
       request.stage = "spawning";
       if (request.cancelRequested === true) return await this._cancelRequest(request, session);
+      if (positive(this._character(request.characterID).collectionShipID) > 0) {
+        request.collectionShip = await this._spawnCollectionShip(session, request);
+        if (!request.collectionShip) {
+          this._send(session, "The selected collection ship is unavailable; SalvageBuddy will deliver loot to your active ship.");
+        }
+      }
       request.serviceShip = await this._spawnServiceShip(session, request);
       if (!request.serviceShip) throw new Error("SERVICE_SHIP_SPAWN_FAILED");
       request.serviceShipID = request.serviceShip.serviceShipID;
@@ -1588,6 +1983,9 @@ class SalvageBuddyService extends BaseService {
       const deadline = Date.now() + this._config.maxServiceDurationMs;
       while (Date.now() < deadline) {
         if (request.cancelRequested === true) return await this._cancelRequest(request, session);
+        if (request.collectionRecallRequested === true && request.collectionShip) {
+          await this._returnCollectionShip(request, session);
+        }
         const targets = this._eligibleTargets(request, session);
         this._recordTargetProgress(request, targets);
         if (targets.length <= 0) break;
@@ -1624,6 +2022,9 @@ class SalvageBuddyService extends BaseService {
         await this._transferSalvageToPlayer(request, session);
         if (request.cancelRequested === true || result && result.cancelled === true) {
           return await this._cancelRequest(request, session);
+        }
+        if (request.collectionRecallRequested === true && request.collectionShip) {
+          await this._returnCollectionShip(request, session);
         }
         if (result && result.stopReason === "cargo") {
           this._send(session, "The player ship cargo hold is full; SalvageBuddy is returning.");
@@ -1694,6 +2095,9 @@ class SalvageBuddyService extends BaseService {
       discoveredTargetIDs: new Set(),
       deployedDrones: [],
       deployedDroneIDs: [],
+      collectionShip: null,
+      collectionRecallRequested: false,
+      collectionHoldFullNotified: false,
       cancelRequested: false,
       departureStarted: false,
     };
@@ -1712,6 +2116,25 @@ class SalvageBuddyService extends BaseService {
     request.stage = "returning";
     this._saveState();
     this._send(session, "SalvageBuddy will stop working and depart shortly.");
+    return this._stateForSession(session);
+  }
+
+  async Handle_RecallCollectionShip(_args, session) {
+    const characterID = characterIDFromSession(session);
+    const request = this._active.get(characterID);
+    if (!request || !request.collectionShip || !request.collectionShip.inSpace) {
+      throw new Error("SALVAGE_BUDDY_COLLECTION_SHIP_NOT_ACTIVE");
+    }
+    if (request.collectionRecallRequested === true) return this._stateForSession(session);
+    request.collectionRecallRequested = true;
+    this._saveState();
+    this._send(session, "The collection ship will return to its station with recovered loot. SalvageBuddy will continue working.");
+    void this._returnCollectionShip(request, session).then((returned) => {
+      if (returned || !request.collectionShip) return;
+      request.collectionRecallRequested = false;
+      this._saveState();
+      this._send(session, "The collection ship could not return to its station. You can try recalling it again.");
+    });
     return this._stateForSession(session);
   }
 

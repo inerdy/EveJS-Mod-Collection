@@ -52,6 +52,15 @@ mods/npcMiningWing/evejs-launcher.mod.json
 Enable the mod in the EveJS Launcher, apply the Game server restart, and open
 the in-game **Mods** menu.
 
+## Compact window (0.12.12)
+
+The window stays at 640 x 500 by default (minimum 560 x 400). A pinned wing
+summary and command bar surround a scrollable roster with ship icons, cargo
+bars, labeled states and drone counts. Available ships and wing ships have
+separate tabs. Right-click actions remain available; the bottom command bar
+always acts on the entire wing. Details reveals runtime counters. Polling
+updates existing rows without rebuilding them unless roster membership changes.
+
 ## Basic use
 
 1. In a station, open **NPC Mining Wing** and mark owned ships.

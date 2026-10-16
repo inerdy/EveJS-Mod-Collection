@@ -29,7 +29,7 @@ function read(relativePath) {
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "systemdiscoveryrewards");
 assert.equal(manifest.displayName, "System Discovery Rewards");
-assert.equal(manifest.version, "0.2.0");
+assert.equal(manifest.version, "0.2.2");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");

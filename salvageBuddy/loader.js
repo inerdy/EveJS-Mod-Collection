@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "salvagebuddy";
-const MOD_VERSION = "0.2.10";
+const MOD_VERSION = "0.2.14";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const ENTITY_SERVICE_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}drone${path.sep}entityService.js`;
 const INSTALLED = Symbol.for("evejs.salvageBuddy.loaderInstalled");
@@ -109,6 +109,6 @@ function installHooks() {
 }
 
 installHooks();
-log(`v${MOD_VERSION} active — temporary Salvage Drone II service enabled`);
+log(`v${MOD_VERSION} active — SalvageBuddy drones and collection-ship service enabled`);
 
 module.exports = Object.freeze({active: true, id: MOD_ID, version: MOD_VERSION});

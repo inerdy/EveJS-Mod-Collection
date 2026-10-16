@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "npccouriercontracts";
-const MOD_VERSION = "0.6.4";
+const MOD_VERSION = "0.6.6";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const TRANSITIONS_SUFFIX = `${path.sep}server${path.sep}space${path.sep}transitions.js`;
 const CONTRACT_PROXY_SUFFIX = `${path.sep}server${path.sep}services${path.sep}_other${path.sep}contractProxyService.js`;

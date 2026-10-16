@@ -21,6 +21,7 @@ function defaultState() {
 function normalizeCharacter(raw = {}) {
   return {
     cooldownUntilMs: Math.max(0, Math.trunc(nonNegative(raw.cooldownUntilMs))),
+    collectionShipID: Math.max(0, Math.trunc(nonNegative(raw.collectionShipID))),
     lastRequestID: Math.max(0, Math.trunc(nonNegative(raw.lastRequestID))),
     lastCompletedAtMs: Math.max(0, Math.trunc(nonNegative(raw.lastCompletedAtMs))),
     lastStatus: String(raw.lastStatus || "").slice(0, 40),

@@ -7,9 +7,14 @@ import blue
 import evejs_mod_menu as mods
 import uthread
 from carbonui import uiconst
+from carbonui.control.button import Button
 from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
 from carbonui.primitives.container import Container
+from carbonui.primitives.containerAutoSize import ContainerAutoSize
+from carbonui.primitives.fill import Fill
+from eve.client.script.ui.control.eveIcon import Icon
+from eve.client.script.ui.control.eveLabel import Label
 from eve.client.script.ui.control.eveLabel import EveLabelMedium
 
 
@@ -30,10 +35,31 @@ _COLOR_ERROR = '0xffff6b6b'
 _COLOR_COMBAT = '0xffff7f9f'
 _COLOR_DRONE = '0xffb8a1ff'
 _COLOR_COLLECTION = '0xffffc857'
+_ACCENT = (0.32, 0.84, 0.83, 1.0)
+
+
+def _text(value):
+    return unicode(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
 def _color_text(color, text):
     return '<color=%s>%s</color>' % (color, text)
+
+
+def _label(parent, text='', **kwargs):
+    kwargs.setdefault('align', uiconst.TOTOP)
+    kwargs.setdefault('autoFitToText', True)
+    kwargs.setdefault('fontsize', 13)
+    kwargs.setdefault('state', uiconst.UI_DISABLED)
+    return Label(parent=parent, text=text, **kwargs)
+
+
+class CompactButton(Button):
+    def get_intrinsic_height(self):
+        return 28
+
+    def get_intrinsic_width(self):
+        return max(76, Button.get_intrinsic_width(self))
 
 
 def _human_error(code):
@@ -109,25 +135,12 @@ class NpcMiningWingShipLabel(EveLabelMedium):
             return []
         return self._menu_owner._get_ship_menu(self._ship)
 
-class NpcMiningWingTab(EveLabelMedium):
-    """Clickable tab label for switching between wing and owned ships."""
-
-    def ApplyAttributes(self, attributes):
-        self._menu_owner = attributes.owner
-        self._tab_key = attributes.tab_key
-        EveLabelMedium.ApplyAttributes(self, attributes)
-        self.state = uiconst.UI_NORMAL
-
-    def OnClick(self, *args):
-        if self._menu_owner is not None and not self._menu_owner.destroyed:
-            self._menu_owner._select_tab(self._tab_key)
-
-
 class NpcMiningWingWindow(Window):
     default_windowID = _WINDOW_ID
     default_caption = 'NPC Mining Wing'
     default_width = 640
     default_height = 500
+    default_minSize = (560, 400)
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
@@ -138,61 +151,40 @@ class NpcMiningWingWindow(Window):
         self._active_tab = 'wing'
         self._last_state = None
         self._pending_requests = {}
-        self._status = EveLabelMedium(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=100,
-            padLeft=8,
-            padTop=4,
-            text=_color_text(_COLOR_MUTED, 'Loading...'),
-        )
-        self._roster_title = EveLabelMedium(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=22,
-            padLeft=8,
-            padTop=2,
-            text='%s - %s' % (
-                _color_text(_COLOR_LABEL, 'Ship Roster'),
-                _color_text(_COLOR_MUTED, 'right-click a ship name for commands'),
-            ),
-        )
-        self._tab_bar = Container(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=28,
-            padLeft=8,
-            padTop=2,
-        )
-        self._wing_tab = NpcMiningWingTab(
-            parent=self._tab_bar,
-            align=uiconst.TOLEFT,
-            width=170,
-            height=24,
-            owner=self,
-            tab_key='wing',
-            text=_color_text(_COLOR_ACTIVE, 'Wing Ships'),
-        )
-        self._all_tab = NpcMiningWingTab(
-            parent=self._tab_bar,
-            align=uiconst.TOLEFT,
-            width=170,
-            height=24,
-            owner=self,
-            tab_key='all',
-            text=_color_text(_COLOR_LABEL, 'All Ships'),
-        )
-        self._scroll = ScrollContainer(
-            parent=self.content,
-            align=uiconst.TOALL,
-            padding=(8, 2, 8, 8),
-        )
-        self._body = Container(
-            parent=self._scroll,
-            align=uiconst.TOTOP,
-            height=40,
-        )
-        self._load_state()
+        self._rows = {}
+        self._roster_key = None
+        self._character = session.charid
+        Fill(bgParent=self.content, color=(0.025, 0.04, 0.05, 0.9))
+        self._header = ContainerAutoSize(parent=self.content, align=uiconst.TOTOP,
+                                        padding=(12, 8, 12, 8))
+        self._summary = _label(self._header, 'Connecting to wing...', fontsize=16)
+        self._destination = _label(self._header, padTop=5, color=(0.65, 0.73, 0.77, 1))
+        self._runtime = _label(self._header, padTop=4, color=(0.65, 0.73, 0.77, 1))
+        self._diagnostics = _label(self._header, padTop=4, state=uiconst.UI_HIDDEN)
+        footer = Container(parent=self.content, align=uiconst.TOBOTTOM, height=44,
+                           padding=(12, 8, 12, 8))
+        self._commands = {}
+        for command, caption in (('deploy', 'Deploy Wing'), ('follow', 'Follow'),
+                                 ('mine', 'Mine'), ('hold', 'Hold'), ('recall', 'Recall Wing')):
+            self._commands[command] = CompactButton(parent=footer, align=uiconst.TOLEFT,
+                padRight=6, label=caption, func=self._command_callback(command),
+                state=uiconst.UI_DISABLED, hint='Applies to the entire wing.')
+        notices = ContainerAutoSize(parent=self.content, align=uiconst.TOBOTTOM,
+                                    alignMode=uiconst.TOTOP, padding=(12, 2, 12, 4))
+        self._status = _label(notices, color=(0.65, 0.73, 0.77, 1))
+        self._tab_bar = Container(parent=self.content, align=uiconst.TOTOP,
+                                  height=34, padding=(12, 0, 12, 4))
+        self._wing_tab = CompactButton(parent=self._tab_bar, align=uiconst.TOLEFT,
+            padRight=6, label='Wing Ships', func=lambda *args: self._select_tab('wing'))
+        self._all_tab = CompactButton(parent=self._tab_bar, align=uiconst.TOLEFT,
+            label='Available Ships', func=lambda *args: self._select_tab('all'))
+        CompactButton(parent=self._tab_bar, align=uiconst.TORIGHT,
+            label='Details', func=self._toggle_details, hint='Show runtime diagnostics.')
+        self._scroll = ScrollContainer(parent=self.content, align=uiconst.TOALL,
+                                       padding=(12, 0, 12, 8))
+        self._body = ContainerAutoSize(parent=self._scroll, align=uiconst.TOTOP)
+        self._roster = ContainerAutoSize(parent=self._body, align=uiconst.TOTOP)
+        uthread.new(self._load_state)
         uthread.new(self._ensure_wing_chat)
         uthread.new(self._state_loop, self._state_generation)
 
@@ -207,6 +199,8 @@ class NpcMiningWingWindow(Window):
                 break
 
     def _load_state(self):
+        if self.destroyed or session.charid != self._character or self._pending_requests:
+            return
         self._request_generation += 1
         generation = self._request_generation
         try:
@@ -215,7 +209,8 @@ class NpcMiningWingWindow(Window):
                 return
             self._render_state(state)
         except Exception as error:
-            self._status.SetText('NPC Mining Wing unavailable: %s' % error)
+            if not self.destroyed and session.charid == self._character:
+                self._status.SetText('NPC Mining Wing unavailable: %s' % _text(error))
 
     def _decode_state(self, response):
         if isinstance(response, basestring):
@@ -270,181 +265,97 @@ class NpcMiningWingWindow(Window):
                         break
         return False
 
+    def _toggle_details(self, *args):
+        self._diagnostics.state = (uiconst.UI_DISABLED if
+            self._diagnostics.state == uiconst.UI_HIDDEN else uiconst.UI_HIDDEN)
+
     def _render_state(self, state):
+        if self.destroyed or session.charid != self._character:
+            return
         self._last_state = state
-        runtime_status = state.get('runtimeStatus', 'unknown')
-        command = state.get('command', 'hold')
         all_ships = state.get('ships', [])
-        wing_ships = [ship for ship in all_ships if (
-            ship.get('marked') or ship.get('deployed') or ship.get('returning')
-        )]
-        available_ships = [ship for ship in all_ships if (
-            not ship.get('marked') and
-            not ship.get('deployed') and
-            not ship.get('returning')
-        )]
-        marked_count = len([ship for ship in all_ships if ship.get('marked')])
-        recall_target = state.get('recallTargetSummary', 'Not set')
-        runtime_message = state.get('runtimeMessage', '')
-        runtime_metrics = state.get('runtimeMetrics') or {}
-        collection_trip = state.get('collectionTrip') or {}
-        collection_error = collection_trip.get('lastError') or ''
-        collection_message = ''
-        if collection_error:
-            collection_message = _color_text(
-                _COLOR_ERROR,
-                'Collection retry: %s (%s failures)' % (
-                    _human_error(collection_error),
-                    collection_trip.get('failureCount', 0) or 0,
-                ),
-            )
-        telemetry_message = ''
-        if runtime_metrics.get('runtimeTicks'):
-            telemetry_message = _color_text(
-                _COLOR_MUTED,
-                'Ticks: %s | Cycles: %s | Cargo moves: %s | Failures: %s' % (
-                    runtime_metrics.get('runtimeTicks', 0),
-                    runtime_metrics.get('miningActivations', 0),
-                    runtime_metrics.get('cargoMoves', 0),
-                    runtime_metrics.get('runtimeFailures', 0),
-                ),
-            )
-        self._status.SetText(
-            '%s %s | %s %s | %s %s\n%s %s\n%s\n%s\n%s\n%s' % (
-                _color_text(_COLOR_LABEL, 'Status:'),
-                _color_text(_status_color(runtime_status), runtime_status),
-                _color_text(_COLOR_LABEL, 'Command:'),
-                _color_text(_command_color(command), command),
-                _color_text(_COLOR_LABEL, 'Marked:'),
-                _color_text(_COLOR_MARKED, marked_count),
-                _color_text(_COLOR_LABEL, 'Recall target:'),
-                _color_text(_COLOR_MUTED, recall_target),
-                _color_text(_COLOR_MUTED, runtime_message),
-                collection_message,
-                telemetry_message,
-                _color_text(
-                    _COLOR_COLLECTION,
-                    'Collection: %s' % (
-                        state.get('collectionShipName') or 'Not assigned',
-                    ),
-                ),
-            )
-        )
-        self._wing_tab.SetText('%s %s' % (
-            _color_text(
-                _COLOR_ACTIVE if self._active_tab == 'wing' else _COLOR_LABEL,
-                'Wing Ships',
-            ),
-            _color_text(_COLOR_MUTED, '(%s)' % len(wing_ships)),
-        ))
-        self._all_tab.SetText('%s %s' % (
-            _color_text(
-                _COLOR_ACTIVE if self._active_tab == 'all' else _COLOR_LABEL,
-                'All Ships',
-            ),
-            _color_text(_COLOR_MUTED, '(%s)' % len(available_ships)),
-        ))
-        ships = wing_ships if self._active_tab == 'wing' else available_ships
-        for child in list(self._body.children):
-            child.Close()
-        self._body.height = max(40, len(ships) * 90 + 8)
+        wing = [ship for ship in all_ships if ship.get('marked') or
+                ship.get('deployed') or ship.get('returning')]
+        available = [ship for ship in all_ships if ship not in wing]
+        status = state.get('runtimeStatus', 'unknown')
+        command = state.get('command', 'hold')
+        self._summary.text = '%s  /  %s  /  %s ships' % (
+            _color_text(_status_color(status), _text(status).title()),
+            _color_text(_command_color(command), _text(command).title()), len(wing))
+        self._destination.text = 'Recall: %s\nCollection: %s' % (
+            _text(state.get('recallTargetSummary') or 'Not set'),
+            _text(state.get('collectionShipName') or 'Not assigned'))
+        trip = state.get('collectionTrip') or {}
+        message = state.get('runtimeMessage') or 'Right-click a ship name for commands.'
+        if trip.get('lastError'):
+            message = 'Collection retry: %s' % _human_error(trip['lastError'])
+        self._runtime.text = _text(message)
+        metrics = state.get('runtimeMetrics') or {}
+        self._diagnostics.text = 'Ticks: %s | Cycles: %s | Cargo moves: %s | Failures: %s' % (
+            metrics.get('runtimeTicks', 0), metrics.get('miningActivations', 0),
+            metrics.get('cargoMoves', 0), metrics.get('runtimeFailures', 0))
+        self._wing_tab.SetLabel('%sWing Ships (%s)' % ('> ' if self._active_tab == 'wing' else '', len(wing)))
+        self._all_tab.SetLabel('%sAvailable (%s)' % ('> ' if self._active_tab == 'all' else '', len(available)))
+        deployed = any(ship.get('deployed') for ship in wing)
+        for key, button in self._commands.items():
+            enabled = any(ship.get('marked') and not ship.get('deployed') and
+                          not ship.get('returning') for ship in wing) if key == 'deploy' else deployed
+            button.state = uiconst.UI_NORMAL if enabled and not self._pending_requests else uiconst.UI_DISABLED
+        ships = wing if self._active_tab == 'wing' else available
+        key = (self._active_tab, tuple(ship.get('shipID') for ship in ships))
+        # Preserve widgets and scroll position while telemetry changes.
+        if key != self._roster_key:
+            self._roster_key = key
+            self._roster.Flush()
+            self._rows = {}
+            for ship in ships:
+                row = NpcMiningWingShipRow(parent=self._roster, align=uiconst.TOTOP,
+                    height=110, padBottom=6, owner=self, ship=ship, state=uiconst.UI_NORMAL)
+                Fill(bgParent=row, color=(0.05, 0.08, 0.1, 0.9), state=uiconst.UI_DISABLED)
+                Icon(parent=row, align=uiconst.TOPLEFT, left=8, top=8, size=32,
+                     typeID=ship.get('typeID'), state=uiconst.UI_DISABLED)
+                row.title = NpcMiningWingShipLabel(parent=row, align=uiconst.TOTOP,
+                    padding=(48, 8, 10, 3), autoFitToText=True, owner=self, ship=ship,
+                    text='', state=uiconst.UI_NORMAL)
+                row.status = _label(row, padding=(48, 0, 10, 3))
+                row.cargo = _label(row, padding=(48, 0, 10, 3))
+                row.drones = _label(row, padding=(48, 0, 10, 6))
+                track = Container(parent=row, align=uiconst.TOBOTTOM, height=3, padding=(8, 0, 8, 0))
+                Fill(bgParent=track, color=(0.15, 0.21, 0.24, 1))
+                row.bar = Fill(parent=track, align=uiconst.TOLEFT_PROP, width=0, color=_ACCENT)
+                self._rows[ship.get('shipID')] = row
+            if not ships:
+                _label(self._roster, 'No ships in the wing. Open Available to mark ships.' if
+                       self._active_tab == 'wing' else 'No available ships at this time.', padding=12)
         for ship in ships:
-            ship_status = ship.get('statusLabel') or 'AVAILABLE'
-            status_detail = ship.get('statusDetail') or ''
+            row = self._rows[ship.get('shipID')]
+            row._ship = row.title._ship = ship
+            title = _text(ship.get('typeName', 'Ship'))
+            if ship.get('pilotName'):
+                title += ' / ' + _text(ship['pilotName'])
+            row.title.SetText(_color_text(_COLOR_SHIP, '<u>%s</u>' % title))
+            row.title.hint = 'Ship %s. Right-click for commands.' % ship.get('shipID')
+            status = ship.get('statusLabel') or 'AVAILABLE'
+            detail = ship.get('statusDetail') or ''
+            row.status.text = '%s%s%s' % (
+                'COLLECTION SHIP / ' if ship.get('collection') else '',
+                _color_text(_status_color(status), _text(status)),
+                ' / ' + _text(detail) if detail else '')
             cargo = ship.get('cargo') or {}
-            cargo_volume = float(cargo.get('volume', 0) or 0)
-            cargo_capacity = float(cargo.get('capacity', 0) or 0)
-            cargo_quantity = cargo.get('quantity', 0) or 0
-            cargo_percent = float(cargo.get('percent', 0) or 0)
-            deployed_drones = int(ship.get('deployedDroneCount', 0) or 0)
-            combat_drones = int(ship.get('deployedCombatDroneCount', 0) or 0)
-            mining_drones = int(ship.get('deployedMiningDroneCount', 0) or 0)
-            ship_name = _color_text(_COLOR_SHIP, '<u>%s</u>' % (
-                ship.get('typeName', 'Ship'),
-            ))
-            pilot_name = ship.get('pilotName') or ''
-            if pilot_name:
-                ship_name = '%s %s' % (
-                    ship_name,
-                    _color_text(_COLOR_ACTIVE, '- %s' % pilot_name),
-                )
-            label = '%s (%s)\n%s' % (
-                ship_name,
-                _color_text(_COLOR_MUTED, ship.get('shipID')),
-                _color_text(_status_color(ship_status), ship_status),
-            )
-            if ship.get('collection'):
-                label = '%s\n%s' % (
-                    _color_text(_COLOR_COLLECTION, 'COLLECTION SHIP'),
-                    label,
-                )
-            if status_detail:
-                label = '%s | %s' % (label, _color_text(_COLOR_MUTED, status_detail))
-            if cargo_capacity > 0:
-                cargo_text = 'Cargo: %.1f/%.1f m3 | %s items | %.1f%%' % (
-                    cargo_volume,
-                    cargo_capacity,
-                    cargo_quantity,
-                    cargo_percent,
-                )
-            else:
-                cargo_text = 'Cargo: %.1f m3 | %s items' % (
-                    cargo_volume,
-                    cargo_quantity,
-                )
-            label = '%s\n%s' % (
-                label,
-                _color_text(_COLOR_MUTED, cargo_text),
-            )
-            if deployed_drones > 0:
-                label = '%s\n%s' % (
-                    label,
-                    _color_text(
-                        _COLOR_DRONE,
-                        'Drones: %s deployed | Combat: %s | Mining: %s' % (
-                            deployed_drones,
-                            combat_drones,
-                            mining_drones,
-                        ),
-                    ),
-                )
-            row = NpcMiningWingShipRow(
-                parent=self._body,
-                align=uiconst.TOTOP,
-                height=88,
-                padding=(0, 0, 0, 4),
-                owner=self,
-                ship=ship,
-            )
-            NpcMiningWingShipLabel(
-                parent=row,
-                align=uiconst.TOLEFT,
-                width=350,
-                height=78,
-                state=uiconst.UI_NORMAL,
-                owner=self,
-                ship=ship,
-                text=label,
-            )
-        if not all_ships:
-            EveLabelMedium(
-                parent=self._body,
-                align=uiconst.TOTOP,
-                height=30,
-                text=_color_text(_COLOR_MUTED, 'No eligible wing ships are currently available.'),
-            )
-        elif not ships:
-            empty_text = (
-                'No marked or deployed wing ships.'
-                if self._active_tab == 'wing'
-                else 'All owned ships are currently marked or deployed.'
-            )
-            EveLabelMedium(
-                parent=self._body,
-                align=uiconst.TOTOP,
-                height=30,
-                text=_color_text(_COLOR_MUTED, empty_text),
-            )
+            used = float(cargo.get('volume') or 0)
+            capacity = float(cargo.get('capacity') or 0)
+            fraction = max(0.0, min(1.0, used / capacity)) if capacity > 0 else 0
+            row.bar.width = fraction
+            row.bar.color = (1, 0.68, 0.31, 1) if fraction >= 0.95 else _ACCENT
+            row.cargo.text = ('Cargo: %s / %s m3  (%s%%)' % (
+                format(used, ',.1f'), format(capacity, ',.1f'), int(fraction * 100))) if capacity > 0 else 'Cargo: %s m3' % format(used, ',.1f')
+            row.cargo.hint = '%s items' % cargo.get('quantity', 0)
+            row.drones.text = _color_text(_COLOR_DRONE, 'Drones: %s mining / %s combat / %s deployed' % (
+                ship.get('deployedMiningDroneCount', 0), ship.get('deployedCombatDroneCount', 0),
+                ship.get('deployedDroneCount', 0)))
+            # Native measured text handles long ship names and narrow windows.
+            row.height = max(110, sum(label.textheight for label in
+                (row.title, row.status, row.cargo, row.drones)) + 36)
 
     def _select_tab(self, tab_key):
         if tab_key not in ('wing', 'all') or self._active_tab == tab_key:
@@ -596,18 +507,25 @@ class NpcMiningWingWindow(Window):
         )
 
     def _request(self, method, payload):
-        if self._pending_requests.get(method):
+        if self.destroyed or session.charid != self._character or self._pending_requests:
             return
+        self._request_generation += 1
         self._pending_requests[method] = True
+        for button in self._commands.values():
+            button.state = uiconst.UI_DISABLED
         try:
             response = getattr(sm.RemoteSvc(_service), method)(payload)
             if not self.destroyed:
                 self._render_state(self._decode_state(response))
+                if session.charid == self._character:
+                    self._status.text = "Request accepted."
         except Exception as error:
             if not self.destroyed:
                 self._status.SetText('Request failed: %s' % _human_error(error))
         finally:
             self._pending_requests.pop(method, None)
+            if not self.destroyed:
+                uthread.new(self._load_state)
 
     def Close(self, *args, **kwargs):
         global _window

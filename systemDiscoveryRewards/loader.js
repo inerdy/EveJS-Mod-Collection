@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "systemdiscoveryrewards";
-const MOD_VERSION = "0.2.0";
+const MOD_VERSION = "0.2.2";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const SPACE_RUNTIME_SESSIONS_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime${path.sep}spaceRuntime${path.sep}sessions.js`;
 const INSTALLED = Symbol.for("evejs.systemDiscoveryRewards.loaderInstalled");

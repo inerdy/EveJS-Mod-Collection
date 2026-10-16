@@ -124,3 +124,13 @@ state file intentionally.
 Fuel state is stored outside the package at
 `<EVEJS data root>/gameStore/shipWarpFuel/state.json`. Keep the manifest inside
 the mod folder when updating the package.
+
+## Compact window (0.2.1)
+
+The window stays at 470 x 500 by default (minimum 430 x 420). The pinned fuel
+summary includes a capacity gauge and estimated range. Scrollable sections show
+route requirements, lifetime odometer and cargo fuel. Choose a fuel type directly
+from the dropdown; load and unload buttons keep short labels. Emergency service
+shows its fee and disables requests during cooldown. Outstanding debt remains
+visible after refueling. Background responses are checked against the current
+character and ship, and action feedback survives routine polling.

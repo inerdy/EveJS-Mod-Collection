@@ -25,7 +25,7 @@ function read(relativePath) {
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "bountyhunting");
 assert.equal(manifest.displayName, "Bounty Hunting");
-assert.equal(manifest.version, "0.1.0");
+assert.equal(manifest.version, "0.1.2");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");

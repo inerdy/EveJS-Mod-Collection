@@ -9,10 +9,11 @@ scripts, ship bonuses, skills, and other targeting-range modifiers are honored.
 It also respects the ship's available target slots and leaves existing locks
 alone when the toggle is disabled.
 
-Only entities that the client identifies as both NPC and hostile are selected.
+Only entities that the client identifies as NPC and hostile are selected.
 Players, friendly entities, structures, wrecks, and entities outside the
-current ballpark are ignored. The client will naturally reject a lock request
-while a target is unavailable, out of range, or otherwise not lockable.
+current ballpark are ignored. The native targeting service rejects a lock
+request while a target is unavailable, out of range, or otherwise not
+lockable.
 
 ## Use
 
@@ -25,8 +26,6 @@ while a target is unavailable, out of range, or otherwise not lockable.
 The feature is off by default and does not automatically unlock targets when
 disabled.
 
-When enabled, the window also shows hostile NPCs currently inside the live
-targeting range. Each entry includes the visible name, type, faction, distance,
-lock state, and a weakness recommendation. Known faction profiles use the
-standard damage recommendation; targets without a recognized profile show
-`Unknown` rather than assuming a weakness.
+When enabled, the compact window shows only the current targeting status and
+lock counts. It submits at most one new lock request per scan and waits between
+scans so pending native lock operations are not repeatedly queued.

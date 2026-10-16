@@ -11,7 +11,9 @@ from carbonui.control.button import Button
 from carbonui.control.scrollContainer import ScrollContainer
 from carbonui.control.window import Window
 from carbonui.primitives.container import Container
-from eve.client.script.ui.control.eveLabel import EveLabelMedium
+from carbonui.primitives.containerAutoSize import ContainerAutoSize
+from carbonui.primitives.fill import Fill
+from eve.client.script.ui.control.eveLabel import Label
 
 
 _WINDOW_ID = 'NpcCourierHaulerProgressWindow'
@@ -31,6 +33,21 @@ _COLOR_ERROR = '0xffff6b6b'
 
 def _color(color, text):
     return '<color=%s>%s</color>' % (color, text)
+
+
+def _label(parent, text='', **kwargs):
+    kwargs.setdefault('align', uiconst.TOTOP)
+    kwargs.setdefault('autoFitToText', True)
+    kwargs.setdefault('fontsize', 13)
+    kwargs.setdefault('state', uiconst.UI_DISABLED)
+    return Label(parent=parent, text=text, **kwargs)
+
+
+def _section(parent, title):
+    panel = ContainerAutoSize(parent=parent, align=uiconst.TOTOP, padBottom=12)
+    Fill(bgParent=panel, color=(0.05, 0.08, 0.1, 0.9))
+    _label(panel, title, fontsize=12, color=(0.45, 0.77, 0.8, 1), padding=(10, 8, 10, 6))
+    return panel
 
 
 def _value(source, key, default=None):
@@ -277,6 +294,7 @@ class HaulerProgressWindow(Window):
     default_caption = 'Hauler Progression'
     default_width = 470
     default_height = 500
+    default_minSize = (430, 430)
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
@@ -288,85 +306,64 @@ class HaulerProgressWindow(Window):
             'autoComplete': False,
             'routeTarget': None,
         }
-        self._scroll = ScrollContainer(
-            parent=self.content,
-            align=uiconst.TOALL,
-            padding=(8, 2, 8, 8),
-        )
-        self._body = Container(
-            parent=self._scroll,
-            align=uiconst.TOTOP,
-            height=530,
-        )
-        self._summary = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=72,
-            padLeft=10,
-            padTop=8,
-            text=_color(_COLOR_MUTED, 'Loading Hauler progression...'),
-        )
-        self._progress = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=72,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._stats = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=88,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._recent = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=62,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._automation_status = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=54,
-            padLeft=10,
-            padTop=4,
-            text=_color(_COLOR_MUTED, 'Loading courier automation...'),
-        )
+        Fill(bgParent=self.content, color=(0.025, 0.04, 0.05, 0.9))
+        header = ContainerAutoSize(parent=self.content, align=uiconst.TOTOP, padding=(12, 8, 12, 10))
+        self._hero = _label(header, 'HAULER PROGRESSION', fontsize=16, padBottom=5)
+        self._hero_meta = _label(header, 'Loading contract record...', color=(0.65, 0.73, 0.77, 1), padBottom=8)
+        track = Container(parent=header, align=uiconst.TOTOP, height=6, padBottom=2)
+        Fill(bgParent=track, color=(0.15, 0.21, 0.24, 1))
+        self._gauge = Fill(parent=track, align=uiconst.TOLEFT_PROP, width=0, color=(0.32, 0.84, 0.83, 1))
+        footer = ContainerAutoSize(parent=self.content, align=uiconst.TOBOTTOM,
+                                  alignMode=uiconst.TOTOP, padding=(12, 4, 12, 6))
+        self._footer = _label(footer, 'Progress and automation refresh every 5 seconds',
+                              color=(0.65, 0.73, 0.77, 1))
+        self._scroll = ScrollContainer(parent=self.content, align=uiconst.TOALL, padding=(12, 0, 12, 6))
+        self._body = ContainerAutoSize(parent=self._scroll, align=uiconst.TOTOP)
+        career = _section(self._body, 'CAREER RECORD')
+        self._summary = _label(career, _color(_COLOR_MUTED, 'Loading Hauler progression...'),
+                               padding=(10, 0, 10, 8))
+        progress = _section(self._body, 'LEVEL PROGRESS')
+        self._progress = _label(progress, '', padding=(10, 0, 10, 4))
+        progress_track = Container(parent=progress, align=uiconst.TOTOP, height=6,
+                                   padding=(10, 0, 10, 8))
+        Fill(bgParent=progress_track, color=(0.15, 0.21, 0.24, 1))
+        self._progress_gauge = Fill(parent=progress_track, align=uiconst.TOLEFT_PROP,
+                                    width=0, color=(0.32, 0.84, 0.83, 1))
+        delivery = _section(self._body, 'DELIVERY RECORD')
+        self._stats = _label(delivery, '', padding=(10, 0, 10, 8))
+        recent = _section(self._body, 'LATEST COMPLETION')
+        self._recent = _label(recent, '', padding=(10, 0, 10, 8))
+        automation = _section(self._body, 'COURIER AUTOMATION')
+        self._automation_status = _label(automation, _color(_COLOR_MUTED, 'Loading courier automation...'),
+                                         padding=(10, 0, 10, 6))
         self._route_toggle = Button(
-            parent=self._body,
+            parent=automation,
             align=uiconst.TOTOP,
-            height=28,
+            height=32,
             padLeft=10,
             padTop=4,
-            label='Automatic Routing: DISABLED',
+            padRight=10,
+            label='Auto Route: DISABLED',
             func=self._toggle_route,
         )
         self._complete_toggle = Button(
-            parent=self._body,
+            parent=automation,
             align=uiconst.TOTOP,
-            height=28,
+            height=32,
             padLeft=10,
             padTop=4,
-            label='Automatic Dock Completion: DISABLED',
+            padRight=10,
+            label='Auto Complete at Station: DISABLED',
             func=self._toggle_completion,
         )
-        EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=66,
-            padLeft=10,
-            padTop=8,
-            text=_color(
+        _label(
+            automation,
+            _color(
                 _COLOR_MUTED,
                 'Automatic routing replaces the current destination with the nearest personal NPC courier drop-off system. ' +
                 'Automatic completion only succeeds when the intact contract package is in your ship at the exact station.',
             ),
+            padding=(10, 8, 10, 8),
         )
         self._load()
         uthread.new(self._refresh_loop, self._generation)
@@ -383,11 +380,10 @@ class HaulerProgressWindow(Window):
             state = self._decode(sm.RemoteSvc(_SERVICE).GetHaulerProgress({}))
             if not self.destroyed:
                 self._render(state)
+                self._footer.text = 'Progress and automation refresh every 5 seconds'
         except Exception as error:
             if not self.destroyed:
-                self._summary.SetText(
-                    _color(_COLOR_ERROR, 'Hauler progression unavailable: %s' % error)
-                )
+                self._footer.text = _color(_COLOR_ERROR, 'Hauler progression unavailable: %s' % error)
         self._load_automation()
 
     def _load_automation(self):
@@ -397,9 +393,7 @@ class HaulerProgressWindow(Window):
                 self._set_automation_state(state)
         except Exception as error:
             if not self.destroyed:
-                self._automation_status.SetText(
-                    _color(_COLOR_ERROR, 'Courier automation unavailable: %s' % error)
-                )
+                self._automation_status.text = _color(_COLOR_ERROR, 'Courier automation unavailable: %s' % error)
 
     def _refresh_loop(self, generation):
         while not self._closed and generation == self._generation:
@@ -418,14 +412,14 @@ class HaulerProgressWindow(Window):
             'routeTarget': _value(state, 'routeTarget', None),
         }
         self._route_toggle.SetLabel(
-            'Automatic Routing: %s' % ('ENABLED' if self._automation_state['autoRoute'] else 'DISABLED')
+            'Auto Route: %s' % ('ENABLED' if self._automation_state['autoRoute'] else 'DISABLED')
         )
         self._complete_toggle.SetLabel(
-            'Automatic Dock Completion: %s' % ('ENABLED' if self._automation_state['autoComplete'] else 'DISABLED')
+            'Auto Complete at Station: %s' % ('ENABLED' if self._automation_state['autoComplete'] else 'DISABLED')
         )
         target = self._automation_state['routeTarget']
         if target:
-            self._automation_status.SetText(
+            self._automation_status.text = (
                 '%s %s jumps: %s - %s' % (
                     _color(_COLOR_LABEL, 'Nearest NPC courier:'),
                     _color(_COLOR_ACTIVE, _integer(_value(target, 'jumps', 0), 0)),
@@ -434,9 +428,7 @@ class HaulerProgressWindow(Window):
                 )
             )
         else:
-            self._automation_status.SetText(
-                _color(_COLOR_MUTED, 'No accepted personal NPC courier contracts found.')
-            )
+            self._automation_status.text = _color(_COLOR_MUTED, 'No accepted personal NPC courier contracts found.')
 
     def _apply_automation_event(self, payload):
         if _value(payload, 'autoRoute', None) is not None:
@@ -444,22 +436,19 @@ class HaulerProgressWindow(Window):
         completed = _value(payload, 'completedContractIDs', []) or []
         failed = _value(payload, 'failedContractIDs', []) or []
         if failed:
-            self._automation_status.SetText(
-                _color(_COLOR_ERROR, 'Automatic completion deferred; contract cargo is missing or invalid.')
-            )
+            self._automation_status.text = _color(
+                _COLOR_ERROR, 'Automatic completion deferred; contract cargo is missing or invalid.')
         elif completed:
-            self._automation_status.SetText(
-                _color(_COLOR_ACTIVE, 'Automatically completed %s NPC courier contract(s).' % len(completed))
-            )
+            self._automation_status.text = _color(
+                _COLOR_ACTIVE, 'Automatically completed %s NPC courier contract(s).' % len(completed))
 
     def _update_automation(self, key, enabled):
         try:
             state = self._decode(sm.RemoteSvc(_SERVICE).SetAutomationSettings({key: enabled}))
             self._set_automation_state(state)
         except Exception as error:
-            self._automation_status.SetText(
-                _color(_COLOR_ERROR, 'Could not update courier automation: %s' % error)
-            )
+            self._automation_status.text = _color(
+                _COLOR_ERROR, 'Could not update courier automation: %s' % error)
 
     def _toggle_route(self, *args):
         self._update_automation('autoRoute', not self._automation_state['autoRoute'])
@@ -480,34 +469,29 @@ class HaulerProgressWindow(Window):
         volume = _number(state.get('totalVolumeM3', 0) or 0)
         if level >= max_level:
             progress_text = 'MAX LEVEL - %s total XP' % total_xp
+            fraction = 1.0
         else:
+            fraction = max(0.0, min(1.0, percent / 100.0))
             progress_text = '%s / %s XP this level | %s%% | %s XP to next' % (
                 xp_into,
                 xp_into + xp_next,
                 _decimal_text(percent),
                 xp_next,
             )
-        self._summary.SetText(
-            '%s %s / %s\n%s %s\n%s %s%%' % (
-                _color(_COLOR_LABEL, 'Hauler Level:'),
-                _color(_COLOR_ACTIVE, level),
-                _color(_COLOR_MUTED, max_level),
-                _color(_COLOR_LABEL, 'Total XP:'),
-                _color(_COLOR_XP, total_xp),
-                _color(_COLOR_LABEL, 'Future payout bonus:'),
-                ('+' if bonus >= 0 else '') + _decimal_text(bonus),
-            )
+        self._hero.text = 'HAULER PROGRESSION  /  LEVEL %s' % level
+        self._hero_meta.text = 'Level %s of %s  |  %s lifetime XP' % (
+            level, max_level, '{:,}'.format(total_xp))
+        self._gauge.width = min(1.0, ((level - 1) + fraction) / max_level) if max_level > 0 else 0
+        self._summary.text = '%s %s  |  %s %s%%' % (
+            _color(_COLOR_LABEL, 'Completed contracts:'),
+            _color(_COLOR_ACTIVE, '{:,}'.format(contracts)),
+            _color(_COLOR_LABEL, 'Future payout bonus:'),
+            _color(_COLOR_BONUS, ('+' if bonus >= 0 else '') + _decimal_text(bonus)),
         )
-        self._progress.SetText(
-            '%s\n%s' % (
-                _color(_COLOR_LABEL, 'Level Progress'),
-                _color(_COLOR_XP, progress_text),
-            )
-        )
-        self._stats.SetText(
-            '%s %s\n%s %s\n%s %s m3' % (
-                _color(_COLOR_LABEL, 'Contracts completed:'),
-                _color(_COLOR_ACTIVE, contracts),
+        self._progress.text = _color(_COLOR_XP, progress_text)
+        self._progress_gauge.width = fraction
+        self._stats.text = (
+            '%s %s\n%s %s m3' % (
                 _color(_COLOR_LABEL, 'Stargate jumps hauled:'),
                 _color(_COLOR_ACTIVE, jumps),
                 _color(_COLOR_LABEL, 'Cargo delivered:'),
@@ -516,21 +500,15 @@ class HaulerProgressWindow(Window):
         )
         last_award = state.get('lastAward') or {}
         if last_award:
-            self._recent.SetText(
-                '%s\n%s' % (
-                    _color(_COLOR_LABEL, 'Latest completion:'),
-                    _color(
-                        _COLOR_MUTED,
-                        '+%s XP | +%s ISK bonus | Level %s' % (
-                            _integer(last_award.get('xp', 0) or 0),
-                            _decimal_text(last_award.get('bonusISK', 0) or 0),
-                            _integer(last_award.get('levelAfter', level) or level, level),
-                        ),
-                    ),
+            self._recent.text = (
+                '%s  |  %s  |  %s' % (
+                    _color(_COLOR_XP, '+%s XP' % _integer(last_award.get('xp', 0) or 0)),
+                    _color(_COLOR_BONUS, '+%s ISK bonus' % _decimal_text(last_award.get('bonusISK', 0) or 0)),
+                    _color(_COLOR_MUTED, 'Level %s' % _integer(last_award.get('levelAfter', level) or level, level)),
                 )
             )
         else:
-            self._recent.SetText(_color(_COLOR_MUTED, 'Complete an NPC courier contract to begin.'))
+            self._recent.text = _color(_COLOR_MUTED, 'Complete an NPC courier contract to begin.')
 
     def Close(self, *args, **kwargs):
         global _window

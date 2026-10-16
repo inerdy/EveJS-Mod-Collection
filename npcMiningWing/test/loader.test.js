@@ -17,7 +17,7 @@ test("loader validates and activates against the workspace EveJS checkout", (t) 
   const loader = require("../loader");
   assert.equal(loader.id, "npcminingwing");
   assert.equal(loader.active, true);
-  assert.equal(loader.version, "0.12.10");
+  assert.equal(loader.version, "0.12.12");
 
   let ServiceManager;
   try {

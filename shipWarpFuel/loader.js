@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "shipwarpfuel";
-const MOD_VERSION = "0.2.0";
+const MOD_VERSION = "0.2.1";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const SESSION_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime${path.sep}spaceRuntime${path.sep}sessions.js`;
 const RUNTIME_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime.js`;
