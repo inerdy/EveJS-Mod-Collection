@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "shipwarpfuel";
-const MOD_VERSION = "0.2.1";
+const MOD_VERSION = "0.2.2";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const SESSION_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime${path.sep}spaceRuntime${path.sep}sessions.js`;
 const RUNTIME_SUFFIX = `${path.sep}server${path.sep}src${path.sep}space${path.sep}runtime.js`;
@@ -135,7 +135,7 @@ function installHooks() {
       exported.buildShipResourceState = function wrappedResourceState(...args) {
         const result = original.apply(this, args);
         const serviceInstance = tryGetService();
-        return serviceInstance ? serviceInstance.decorateResourceState(result) : result;
+        return serviceInstance ? serviceInstance.decorateResourceState(result, args[1]) : result;
       };
     }
     exported[FITTING_WRAPPED] = true;

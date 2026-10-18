@@ -49,7 +49,7 @@ assert.equal(manifest.version, "0.1.0");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["0.12.9"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
 
 const normalizedConfig = normalizeConfig(config);
 assert.equal(normalizedConfig.enabled, true);

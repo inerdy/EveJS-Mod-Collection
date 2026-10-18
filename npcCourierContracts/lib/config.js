@@ -68,6 +68,20 @@ const DEFAULT_CONFIG = Object.freeze({
     minimumStackCount: 2,
     maximumStackCount: 5,
   },
+  shipCargo: {
+    chance: 0.33,
+    targetVolumeM3: 1000000,
+    minimumLoadFraction: 0.25,
+    maximumLoadFraction: 0.9,
+    minimumStackCount: 2,
+    maximumStackCount: 5,
+    minimumQuantity: 1,
+    maximumQuantity: 1000,
+    maximumItemVolumeM3: 1000000,
+    rewardMultiplier: 10,
+    allowedGroupIDs: [25, 26, 463],
+    referenceValueISKByTypeID: {},
+  },
   plexReward: {
     minimum: 10,
     maximum: 20,
@@ -146,6 +160,33 @@ function normalizeCatalog(value, fallback) {
   return result.length > 0 ? result : DEFAULT_CONFIG.cargoCatalog.map((entry) => ({...entry}));
 }
 
+function normalizePositiveIDs(value, fallback, maximum = 1000000000) {
+  const values = Array.isArray(value) ? value : fallback;
+  const result = [...new Set(values
+    .map((entry) => {
+      const numeric = Number(entry);
+      return Number.isInteger(numeric) && numeric > 0 && numeric <= maximum ? numeric : 0;
+    })
+    .filter(Boolean))];
+  return result.length > 0 ? result : [...fallback];
+}
+
+function normalizeReferenceValues(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const result = {};
+  for (const [rawTypeID, rawValue] of Object.entries(source)) {
+    const numericTypeID = Number(rawTypeID);
+    const typeID = Number.isInteger(numericTypeID) && numericTypeID > 0 && numericTypeID <= 1000000000
+      ? numericTypeID
+      : 0;
+    const referenceValueISK = money(rawValue, 0, 1000000000000000);
+    if (typeID > 0 && referenceValueISK > 0) {
+      result[String(typeID)] = referenceValueISK;
+    }
+  }
+  return Object.freeze(result);
+}
+
 function normalizeConfig(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   const issuer = source.issuer && typeof source.issuer === "object" ? source.issuer : {};
@@ -154,6 +195,7 @@ function normalizeConfig(value = {}) {
   const collateral = source.collateral && typeof source.collateral === "object" ? source.collateral : {};
   const courier = source.courier && typeof source.courier === "object" ? source.courier : {};
   const cargo = source.cargo && typeof source.cargo === "object" ? source.cargo : {};
+  const shipCargo = source.shipCargo && typeof source.shipCargo === "object" ? source.shipCargo : {};
   const plexReward = source.plexReward && typeof source.plexReward === "object" ? source.plexReward : {};
   const haulerProgression = source.haulerProgression && typeof source.haulerProgression === "object"
     ? source.haulerProgression
@@ -255,6 +297,60 @@ function normalizeConfig(value = {}) {
       maximumStackCount: Math.max(
         integer(cargo.maximumStackCount, DEFAULT_CONFIG.cargo.maximumStackCount, 1, 32),
         integer(cargo.minimumStackCount, DEFAULT_CONFIG.cargo.minimumStackCount, 1, 32),
+      ),
+    }),
+    shipCargo: Object.freeze({
+      chance: fraction(shipCargo.chance, DEFAULT_CONFIG.shipCargo.chance),
+      targetVolumeM3: Math.max(
+        1,
+        money(
+          shipCargo.targetVolumeM3,
+          DEFAULT_CONFIG.shipCargo.targetVolumeM3,
+          1000000000,
+        ),
+      ),
+      minimumLoadFraction: fraction(
+        shipCargo.minimumLoadFraction,
+        DEFAULT_CONFIG.shipCargo.minimumLoadFraction,
+      ),
+      maximumLoadFraction: Math.max(
+        fraction(shipCargo.maximumLoadFraction, DEFAULT_CONFIG.shipCargo.maximumLoadFraction),
+        fraction(shipCargo.minimumLoadFraction, DEFAULT_CONFIG.shipCargo.minimumLoadFraction),
+      ),
+      minimumStackCount: integer(
+        shipCargo.minimumStackCount,
+        DEFAULT_CONFIG.shipCargo.minimumStackCount,
+        2,
+        32,
+      ),
+      maximumStackCount: Math.max(
+        integer(shipCargo.maximumStackCount, DEFAULT_CONFIG.shipCargo.maximumStackCount, 2, 32),
+        integer(shipCargo.minimumStackCount, DEFAULT_CONFIG.shipCargo.minimumStackCount, 2, 32),
+      ),
+      minimumQuantity: positive(
+        shipCargo.minimumQuantity,
+        DEFAULT_CONFIG.shipCargo.minimumQuantity,
+        1000000000,
+      ),
+      maximumQuantity: Math.max(
+        positive(shipCargo.maximumQuantity, DEFAULT_CONFIG.shipCargo.maximumQuantity, 1000000000),
+        positive(shipCargo.minimumQuantity, DEFAULT_CONFIG.shipCargo.minimumQuantity, 1000000000),
+      ),
+      maximumItemVolumeM3: money(
+        shipCargo.maximumItemVolumeM3,
+        DEFAULT_CONFIG.shipCargo.maximumItemVolumeM3,
+        1000000000,
+      ),
+      rewardMultiplier: Math.max(
+        0.1,
+        Math.min(100, finite(shipCargo.rewardMultiplier, DEFAULT_CONFIG.shipCargo.rewardMultiplier)),
+      ),
+      allowedGroupIDs: normalizePositiveIDs(
+        shipCargo.allowedGroupIDs,
+        DEFAULT_CONFIG.shipCargo.allowedGroupIDs,
+      ),
+      referenceValueISKByTypeID: normalizeReferenceValues(
+        shipCargo.referenceValueISKByTypeID,
       ),
     }),
     plexReward: Object.freeze({

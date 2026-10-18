@@ -1,6 +1,6 @@
 # NPC Market Liquidity
 
-[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native and Docker](https://img.shields.io/badge/backend-native%20%2B%20Docker-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -22,7 +22,7 @@ mod fuel order remains, including after consumption or a market rebuild.
 
 ## Requirements
 
-- EveJS `0.12.9`
+- EveJS `261018.1`
 - Market daemon RPC capability `idempotent-fill-v1`
 - EveJS Launcher `1.0.69` or newer
 

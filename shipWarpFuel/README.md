@@ -1,18 +1,37 @@
 # Ship Warp Fuel
 
-[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 
-Ship Warp Fuel adds a server-authoritative isotope fuel system to EveJS 0.12.9
+Ship Warp Fuel adds a server-authoritative isotope fuel system to EveJS 261018.1
 without modifying EveJS source files.
 
 ## Features
 
-Every ship exposes a 1,000-unit universal fuel bay. Warp commands consume the
-currently selected isotope based on ship class and fuel burn rate, rounded up
-with a one-unit minimum. Manual and autopilot warps are covered; stargate
-travel, docking, undocking, subwarp movement, login, and reconnects do not
-consume fuel. The mod also records each ship's warp odometer in AU.
+Fuel-using ships have a class-sized isotope fuel bay. Capsules have no fuel bay
+and use no warp fuel. Warp commands consume the currently selected isotope
+based on ship class and fuel burn rate, rounded up with a one-unit minimum.
+Manual and autopilot warps are covered; stargate travel, docking, undocking,
+subwarp movement, login, and reconnects do not consume fuel. The mod also
+records each ship's warp odometer in AU.
+
+Default tank capacities are:
+
+| Ship class | Capacity |
+| --- | ---: |
+| Capsule | No fuel tank |
+| Frigate, corvette, shuttle | 1,000 units |
+| Destroyer | 1,500 units |
+| Cruiser | 2,500 units |
+| Battlecruiser | 3,000 units |
+| Battleship | 4,000 units |
+| Industrial and transport | 5,000 units |
+| Capital and freighter | 8,000 units |
+| Unknown hull fallback | 1,000 units |
+
+Fuel-using ships are topped up to their class capacity the first time a
+character's active ship attaches. The one-time fill is idempotent, and
+capsules are skipped.
 
 The selectable fuel types and default burn multipliers are:
 
@@ -31,7 +50,7 @@ The default fuel rates are measured in units per AU:
 
 | Ship class | Rate |
 | --- | ---: |
-| Capsule, frigate, corvette, shuttle | 0.5 |
+| Frigate, corvette, shuttle | 0.5 |
 | Destroyer | 0.75 |
 | Cruiser | 1.25 |
 | Battlecruiser | 1.5 |
@@ -59,21 +78,19 @@ ship-class and isotope multipliers used by actual warp consumption. It is an
 estimate because the exact gate-to-gate warp distances are only known as the
 autopilot performs them.
 
-The first time a character's active ship attaches, the mod tops it up to a
-full fuel bay. The migration is idempotent and does not repeatedly refill the
-ship after relogs.
-
 When a ship has no fuel of the selected type, the Mods-menu window offers an
-emergency fuel ship. It delivers 25 units of the selected isotope, charges
-1,000,000 ISK, and has a 15-minute character cooldown. The service ship warps
+emergency fuel ship. It delivers 35% of that hull's tank capacity, rounded up
+to a whole unit when there is enough room for the full delivery. It charges
+1,000,000 ISK and has a 15-minute character cooldown. The service ship warps
 in from 1 AU, approaches the player, delivers the fuel, and then warps away
-before it is removed. The emergency button is only shown when the active ship
-has no fuel of the selected type and the character is undocked in space. If the wallet is short, the available
-balance is charged and the remainder is tracked as debt for later collection.
+before it is removed. The emergency button appears for fuel-using ships when
+the active ship has no fuel of the selected type and the character is undocked
+in space. If the wallet is short, the available balance is charged and the
+remainder is tracked as debt for later collection.
 
 ## Requirements
 
-- Native EveJS `0.12.9`
+- Native EveJS `261018.1`
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
 
 This mod is native-only. Docker deployments are not supported.
@@ -86,8 +103,12 @@ placed in the ignored `config/fuel.local.json` file.
 
 ## Configuration
 
-The emergency service movement can be adjusted with these settings:
+Fuel capacity and emergency service settings can be adjusted here:
 
+- `fuelCapacityUnitsByClass`: tank capacity in fuel units for each ship class.
+  Capsules are always fuel-free; other ship classes have a 1,000-unit minimum.
+- `emergencyFuelPercent`: percentage of the active ship's tank supplied by an
+  emergency delivery (35 by default).
 - `serviceShipSpawnDistanceAU`: distance from the player where the service
   ship begins its warp-in.
 - `serviceShipApproachRangeMeters`: distance at which the service ship can
@@ -125,7 +146,7 @@ Fuel state is stored outside the package at
 `<EVEJS data root>/gameStore/shipWarpFuel/state.json`. Keep the manifest inside
 the mod folder when updating the package.
 
-## Compact window (0.2.1)
+## Compact window (0.2.2)
 
 The window stays at 470 x 500 by default (minimum 430 x 420). The pinned fuel
 summary includes a capacity gauge and estimated range. Scrollable sections show

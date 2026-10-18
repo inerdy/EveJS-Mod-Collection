@@ -1,6 +1,6 @@
 # Station Container Storage
 
-[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -21,7 +21,7 @@ types and containers in space are not changed.
 
 ## Requirements
 
-- Native EveJS 0.12.9
+- Native EveJS 261018.1
 - EveJS Launcher 1.0.69 or newer
 
 This mod is native-only. Docker deployments are not supported.

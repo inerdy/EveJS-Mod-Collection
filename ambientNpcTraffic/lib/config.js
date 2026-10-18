@@ -19,9 +19,11 @@ const DEFAULT_CONFIG = Object.freeze({
   spawnDistanceMeters: 10000,
   arrivalDistanceMeters: 200000,
   orbitDistanceMeters: 5000,
+  gateApproachDistanceMeters: 15000,
+  gateJumpRangeMeters: 2500,
+  gateExitDelayMs: 20000,
   crossSystemChance: 0.35,
   profileIDs: [
-    "parity_mission_generic_40574_toms_shuttle",
     "ore_mining_bestower_hauler",
     "ore_mining_badger_hauler",
     "ore_mining_mammoth_hauler",
@@ -70,6 +72,15 @@ function normalizeConfig(value = {}) {
     // the approach point is measured from the destination anchor.
     arrivalDistanceMeters: Math.max(200000, finite(source.arrivalDistanceMeters, DEFAULT_CONFIG.arrivalDistanceMeters)),
     orbitDistanceMeters: Math.max(1000, finite(source.orbitDistanceMeters, DEFAULT_CONFIG.orbitDistanceMeters)),
+    gateApproachDistanceMeters: Math.max(
+      1000,
+      finite(source.gateApproachDistanceMeters, DEFAULT_CONFIG.gateApproachDistanceMeters),
+    ),
+    gateJumpRangeMeters: Math.max(
+      500,
+      finite(source.gateJumpRangeMeters, DEFAULT_CONFIG.gateJumpRangeMeters),
+    ),
+    gateExitDelayMs: integer(source.gateExitDelayMs, DEFAULT_CONFIG.gateExitDelayMs, 1000, 600000),
     crossSystemChance: fraction(source.crossSystemChance, DEFAULT_CONFIG.crossSystemChance),
     profileIDs: profiles.length > 0 ? profiles : DEFAULT_CONFIG.profileIDs,
   });

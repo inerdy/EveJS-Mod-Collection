@@ -2,7 +2,7 @@
 
 const path = require("node:path");
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", ".."));
 const serverPath = (...segments) => path.join(REPO_ROOT, "server", "src", ...segments);
 const BaseService = require(serverPath("services", "baseService"));
 const itemStore = require(serverPath("services", "inventory", "itemStore"));

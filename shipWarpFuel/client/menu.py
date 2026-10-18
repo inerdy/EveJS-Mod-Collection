@@ -269,19 +269,25 @@ class ShipWarpFuelWindow(Window):
         fuel = _integer(state.get('fuelUnits'))
         capacity = _integer(state.get('fuelCapacityUnits'))
         fuel_name = state.get('fuelName', 'Selected isotopes')
+        fuel_free = capacity <= 0 or state.get('fuelExempt') is True
         fraction = max(0.0, min(1.0, float(fuel) / capacity)) if capacity > 0 else 0
         self._ship.text = '%s / %s' % (_text(state.get('shipName', 'Current Ship')),
                                       'Enabled' if state.get('enabled') else 'Disabled')
-        self._fuel.text = '%s / %s units  (%s%%) / %s' % (
-            format(fuel, ','), format(capacity, ','), int(fraction * 100), _text(fuel_name))
+        self._fuel.text = ('Fuel-free capsule%s' % (
+            ' (%s legacy units to unload)' % format(fuel, ',') if fuel > 0 else '')) if fuel_free else (
+            '%s / %s units  (%s%%) / %s' % (
+                format(fuel, ','), format(capacity, ','), int(fraction * 100), _text(fuel_name)))
         self._gauge.width = fraction
         self._gauge.color = ((1, 0.32, 0.36, 1) if fuel <= 0 else
                             (1, 0.68, 0.31, 1) if fraction <= .2 else (0.32, 0.84, 0.83, 1))
-        self._range.text = '%s AU estimated range / %sx burn' % (
-            format(_number(state.get('rangeAU')), ',.2f'), format(_number(state.get('fuelMultiplier'), 1), '.2f'))
+        self._range.text = 'Capsule warp does not consume fuel' if fuel_free else (
+            '%s AU estimated range / %sx burn' % (
+                format(_number(state.get('rangeAU')), ',.2f'), format(_number(state.get('fuelMultiplier'), 1), '.2f')))
         self._odometer.text = 'Lifetime: %s AU / %s warps' % (
             format(_number(state.get('totalWarpAU')), ',.3f'), format(_integer(state.get('warpCount')), ','))
-        if estimate and estimate.get('hasRoute'):
+        if fuel_free:
+            self._waypoint.text = 'Capsule warps do not require fuel.'
+        elif estimate and estimate.get('hasRoute'):
             required = _integer(estimate.get('fuelRequired'))
             after = _integer(estimate.get('fuelAfterRoute'), _integer(estimate.get('fuelAvailable'), fuel) - required)
             result = '%s units after route' % format(after, ',') if after >= 0 else '%s units short' % format(-after, ',')
@@ -290,7 +296,8 @@ class ShipWarpFuelWindow(Window):
                 format(required, ','), _color(_COLOR_ACTIVE if after >= 0 else _COLOR_ERROR, result))
         else:
             self._waypoint.text = 'Set a route to see estimated fuel needs.'
-        self._waypoint.hint = 'Estimate based on gate jumps; actual warp distances can differ.'
+        self._waypoint.hint = 'Capsules use no warp fuel.' if fuel_free else (
+            'Estimate based on gate jumps; actual warp distances can differ.')
         bay = bay or {}
         cargo = _integer(bay.get('cargoFuelUnits'))
         self._bay.text = '%s units of %s in cargo' % (format(cargo, ','), _text(fuel_name))
@@ -308,21 +315,30 @@ class ShipWarpFuelWindow(Window):
         finally:
             self._loading = False
         self._fuel_type.state = uiconst.UI_NORMAL if len(options) > 1 and not self._busy else uiconst.UI_DISABLED
-        self._load_button.state = uiconst.UI_NORMAL if cargo > 0 and fuel < capacity and not self._busy else uiconst.UI_DISABLED
-        self._load_button.hint = 'Load selected fuel up to bay capacity.' if cargo > 0 else 'No selected fuel in cargo.'
+        fuel_bay_used = _integer(state.get('fuelBayUsedUnits'), fuel)
+        self._load_button.state = uiconst.UI_NORMAL if not fuel_free and cargo > 0 and fuel_bay_used < capacity and not self._busy else uiconst.UI_DISABLED
+        self._load_button.hint = ('Capsules cannot load warp fuel.' if fuel_free else
+                                  'Load selected fuel up to bay capacity.' if cargo > 0 else
+                                  'No selected fuel in cargo.')
         self._unload_button.state = uiconst.UI_NORMAL if fuel > 0 and not self._busy else uiconst.UI_DISABLED
         self._unload_button.hint = 'Move selected fuel into available cargo space.'
         in_space = state.get('inSpace') is True
         cooldown = _integer(state.get('emergencyCooldownSeconds'))
         debt = _number(state.get('debtISK'))
-        show_emergency = fuel <= 0 and in_space
-        self._emergency_panel.state = uiconst.UI_NORMAL if show_emergency or debt > 0 else uiconst.UI_HIDDEN
+        needs_emergency = not fuel_free and fuel <= 0 and in_space
+        emergency_units = _integer(state.get('emergencyFuelUnits'))
+        free_bay_units = capacity - fuel_bay_used
+        show_emergency = needs_emergency and free_bay_units >= emergency_units
+        self._emergency_panel.state = uiconst.UI_NORMAL if needs_emergency or debt > 0 else uiconst.UI_HIDDEN
         self._emergency.state = (uiconst.UI_NORMAL if cooldown <= 0 and not self._busy else uiconst.UI_DISABLED) if show_emergency else uiconst.UI_HIDDEN
         self._emergency.SetLabel('Ready in %ss' % cooldown if cooldown > 0 else 'Request Emergency Fuel')
         self._details.text = 'Outstanding debt: %s ISK' % _format_isk(debt)
+        if needs_emergency and not show_emergency:
+            self._details.text += '\nMove fuel to cargo to make room for the emergency delivery.'
         if show_emergency:
-            self._details.text += '\nDelivers %s %s for %s ISK.' % (
-                _integer(state.get('emergencyFuelUnits'), 25), _text(fuel_name),
+            self._details.text += '\nDelivers %s %s (%s%% of tank) for %s ISK.' % (
+                emergency_units, _text(fuel_name),
+                _integer(state.get('emergencyFuelPercent'), 35),
                 _format_isk(state.get('emergencyFeeISK', 1000000)))
 
     def _request_emergency(self, *args):

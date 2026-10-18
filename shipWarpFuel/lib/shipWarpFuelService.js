@@ -2,7 +2,7 @@
 
 const path = require("node:path");
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", ".."));
 const serverPath = (...segments) => path.join(REPO_ROOT, "server", "src", ...segments);
 const BaseService = require(serverPath("services", "baseService"));
 const database = require(serverPath("gameStore"));
@@ -299,28 +299,48 @@ class ShipWarpFuelService extends BaseService {
       .filter((item) => positive(item && item.typeID) === positive(fuelTypeID));
   }
 
-  _shipFuelProfile(characterID, session = null) {
-    const ship = this._activeShip(characterID, session);
+  _shipClass(ship) {
     const store = this._getDependencies().itemStore;
     const metadata = ship && store && typeof store.getItemMetadata === "function"
       ? store.getItemMetadata(ship.typeID)
       : null;
-    const shipClass = classifyShip(
-      ship,
-      metadata,
-      store,
+    return classifyShip(ship, metadata, store);
+  }
+
+  fuelCapacityUnitsForShip(ship) {
+    const shipClass = this._shipClass(ship);
+    if (shipClass === "capsule") return 0;
+    const configuredCapacity = this._config.fuelCapacityUnitsByClass &&
+      this._config.fuelCapacityUnitsByClass[shipClass];
+    return Math.max(
+      1000,
+      Math.trunc(finite(configuredCapacity, this._config.fuelCapacityUnits)),
     );
+  }
+
+  emergencyFuelUnitsForShip(ship) {
+    return Math.ceil(
+      this.fuelCapacityUnitsForShip(ship) * this._config.emergencyFuelPercent / 100,
+    );
+  }
+
+  _shipFuelProfile(characterID, session = null) {
+    const ship = this._activeShip(characterID, session);
+    const shipClass = this._shipClass(ship);
+    const fuelExempt = shipClass === "capsule";
     const configuredRate = this._config.fuelUnitsPerAUByClass &&
       this._config.fuelUnitsPerAUByClass[shipClass];
     const fuelTypeID = this._selectedFuelTypeID(ship && ship.itemID);
     const fuel = this._fuelDefinition(fuelTypeID);
-    const baseFuelUnitsPerAU = Math.max(
-      0.000001,
-      finite(configuredRate, this._config.fuelUnitsPerAU),
-    );
+    const baseFuelUnitsPerAU = fuelExempt
+      ? 0
+      : Math.max(0.000001, finite(configuredRate, this._config.fuelUnitsPerAU));
     return {
       ship,
       shipClass,
+      fuelExempt,
+      fuelCapacityUnits: this.fuelCapacityUnitsForShip(ship),
+      emergencyFuelUnits: this.emergencyFuelUnitsForShip(ship),
       fuelTypeID,
       fuelName: fuel.name,
       fuelMultiplier: Math.max(0.000001, finite(fuel.burnMultiplier, 1)),
@@ -344,6 +364,7 @@ class ShipWarpFuelService extends BaseService {
   _fuelBayState(characterID, session = null) {
     const ship = this._activeShip(characterID, session);
     const shipID = positive(ship && ship.itemID, shipIDFromSession(session));
+    const shipClass = this._shipClass(ship);
     const fuelTypeID = this._selectedFuelTypeID(shipID);
     const fuelDefinition = this._fuelDefinition(fuelTypeID);
     const fuelRows = shipID ? this._fuelRows(characterID, shipID, fuelTypeID) : [];
@@ -363,13 +384,15 @@ class ShipWarpFuelService extends BaseService {
     return {
       shipID,
       shipName: String(ship && (ship.itemName || ship.name) || "Current Ship"),
+      shipClass,
+      fuelExempt: shipClass === "capsule",
       fuelTypeID,
       fuelName: fuelDefinition.name,
       fuelMultiplier: fuelDefinition.burnMultiplier,
       fuelBayFlagID: FUEL_BAY_FLAG,
       cargoHoldFlagID: CARGO_HOLD_FLAG,
       fuelUnits,
-      fuelCapacityUnits: this._config.fuelCapacityUnits,
+      fuelCapacityUnits: this.fuelCapacityUnitsForShip(ship),
       cargoFuelUnits,
       fuelTypes,
       fuelBayItems: fuelRows.map((item) => this._inventoryRow(item)),
@@ -389,6 +412,7 @@ class ShipWarpFuelService extends BaseService {
     const shipID = shipIDFromSession(session);
     const ship = this._activeShip(characterID, session);
     if (!characterID || !shipID || !ship) throw new Error("SHIP_WARP_FUEL_SHIP_REQUIRED");
+    const capacityUnits = this.fuelCapacityUnitsForShip(ship);
 
     const sourceFlag = direction === "load" ? CARGO_HOLD_FLAG : FUEL_BAY_FLAG;
     const destinationFlag = direction === "load" ? FUEL_BAY_FLAG : CARGO_HOLD_FLAG;
@@ -400,11 +424,11 @@ class ShipWarpFuelService extends BaseService {
       ? this._allFuelRows(characterID, shipID).reduce((sum, item) => sum + quantityOf(item), 0)
       : this.fuelQuantity(characterID, shipID, fuelTypeID);
     const defaultQuantity = direction === "load"
-      ? Math.max(0, this._config.fuelCapacityUnits - currentFuel)
+      ? Math.max(0, capacityUnits - currentFuel)
       : currentFuel;
     let remaining = Math.min(
       Math.max(0, Math.trunc(Number(requestedQuantity) || 0)) || defaultQuantity,
-      direction === "load" ? Math.max(0, this._config.fuelCapacityUnits - currentFuel) : currentFuel,
+      direction === "load" ? Math.max(0, capacityUnits - currentFuel) : currentFuel,
     );
     let moved = 0;
     const changes = [];
@@ -467,8 +491,8 @@ class ShipWarpFuelService extends BaseService {
     return Math.max(0.000001, finite(metadata && metadata.volume, 0.03));
   }
 
-  fuelCapacityM3() {
-    return this._config.fuelCapacityUnits * this.fuelUnitVolumeM3();
+  fuelCapacityM3(ship = null) {
+    return this.fuelCapacityUnitsForShip(ship) * this.fuelUnitVolumeM3();
   }
 
   _fuelBayUsedVolume(characterID, shipID) {
@@ -484,9 +508,9 @@ class ShipWarpFuelService extends BaseService {
       }, 0);
   }
 
-  decorateResourceState(resourceState) {
+  decorateResourceState(resourceState, ship = null) {
     if (!this._config.enabled || !resourceState || typeof resourceState !== "object") return resourceState;
-    const capacity = this.fuelCapacityM3();
+    const capacity = this.fuelCapacityM3(ship);
     resourceState.specialFuelBayCapacity = capacity;
     resourceState.attributes = resourceState.attributes && typeof resourceState.attributes === "object"
       ? resourceState.attributes
@@ -497,16 +521,17 @@ class ShipWarpFuelService extends BaseService {
 
   decorateFittingSnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== "object") return snapshot;
-    this.decorateResourceState(snapshot.resourceState);
-    this.decorateResourceState(snapshot.snapshot && snapshot.snapshot.resourceState);
+    const ship = snapshot.shipItem || snapshot.snapshot && snapshot.snapshot.shipItem || null;
+    this.decorateResourceState(snapshot.resourceState, ship);
+    this.decorateResourceState(snapshot.snapshot && snapshot.snapshot.resourceState, ship);
     if (snapshot.shipAttributes && typeof snapshot.shipAttributes === "object") {
-      snapshot.shipAttributes[1549] = this.fuelCapacityM3();
+      snapshot.shipAttributes[1549] = this.fuelCapacityM3(ship);
     }
     if (snapshot.trackedShipAttributes && typeof snapshot.trackedShipAttributes === "object") {
-      snapshot.trackedShipAttributes[1549] = this.fuelCapacityM3();
+      snapshot.trackedShipAttributes[1549] = this.fuelCapacityM3(ship);
     }
     if (snapshot.snapshot && snapshot.snapshot.shipAttributes) {
-      snapshot.snapshot.shipAttributes[1549] = this.fuelCapacityM3();
+      snapshot.snapshot.shipAttributes[1549] = this.fuelCapacityM3(ship);
     }
     return snapshot;
   }
@@ -559,6 +584,8 @@ class ShipWarpFuelService extends BaseService {
     const ship = shipItem || this._activeShip(characterID, session);
     const shipID = positive(ship && ship.itemID, shipIDFromSession(session));
     if (!characterID || !shipID) return null;
+    const capacityUnits = this.fuelCapacityUnitsForShip(ship);
+    if (capacityUnits <= 0) return this.fuelQuantity(characterID, shipID);
     const fuelTypeID = this._selectedFuelTypeID(shipID);
     const fuelDefinition = this._fuelDefinition(fuelTypeID);
     const character = this._character(characterID);
@@ -566,7 +593,7 @@ class ShipWarpFuelService extends BaseService {
     const existingMarker = character.initialFills[fillKey];
     const currentFuel = this.fuelQuantity(characterID, shipID);
     if (existingMarker && existingMarker.completed === true) return currentFuel;
-    if (currentFuel >= this._config.fuelCapacityUnits) {
+    if (currentFuel >= capacityUnits) {
       character.initialFills[fillKey] = {
         completed: true,
         quantity: currentFuel,
@@ -579,11 +606,11 @@ class ShipWarpFuelService extends BaseService {
 
     const freeVolume = Math.max(
       0,
-      this.fuelCapacityM3() - this._fuelBayUsedVolume(characterID, shipID),
+      this.fuelCapacityM3(ship) - this._fuelBayUsedVolume(characterID, shipID),
     );
     const freeUnits = Math.floor(freeVolume / this.fuelUnitVolumeM3() + 1e-9);
     const requested = Math.min(
-      this._config.fuelCapacityUnits - currentFuel,
+      capacityUnits - currentFuel,
       freeUnits,
     );
     if (requested <= 0) return currentFuel;
@@ -608,7 +635,7 @@ class ShipWarpFuelService extends BaseService {
     }
     const afterFuel = this.fuelQuantity(characterID, shipID);
     character.initialFills[fillKey] = {
-      completed: afterFuel >= this._config.fuelCapacityUnits,
+      completed: afterFuel >= capacityUnits,
       quantity: afterFuel,
       atMs: Date.now(),
     };
@@ -682,6 +709,22 @@ class ShipWarpFuelService extends BaseService {
     const meters = distanceMeters(destination.sourcePosition, destination.destinationPosition);
     const distanceAU = meters / AU_METERS;
     const fuelProfile = this._shipFuelProfile(characterID, session);
+    if (fuelProfile.fuelExempt) {
+      return {
+        characterID,
+        shipID,
+        distanceAU,
+        fuelUnits: 0,
+        shipClass: fuelProfile.shipClass,
+        fuelTypeID: fuelProfile.fuelTypeID,
+        fuelName: fuelProfile.fuelName,
+        fuelMultiplier: fuelProfile.fuelMultiplier,
+        fuelUnitsPerAU: 0,
+        fuelExempt: true,
+        changes: [],
+        key: null,
+      };
+    }
     const fuelUnits = Math.max(
       this._config.minimumWarpFuel,
       Math.ceil(distanceAU * fuelProfile.fuelUnitsPerAU),
@@ -748,9 +791,11 @@ class ShipWarpFuelService extends BaseService {
     if (!plan) return result;
     const successful = result === true || Boolean(result && result.success === true);
     if (!successful) {
-      const rollback = this._getDependencies().itemStore.restoreInventoryItemChangesAtomic(plan.changes || []);
-      if (!rollback || rollback.success !== true) {
-        log.error(`[${MOD_ID}] failed to restore fuel after rejected warp ship=${plan.shipID}`);
+      if (Array.isArray(plan.changes) && plan.changes.length > 0) {
+        const rollback = this._getDependencies().itemStore.restoreInventoryItemChangesAtomic(plan.changes);
+        if (!rollback || rollback.success !== true) {
+          log.error(`[${MOD_ID}] failed to restore fuel after rejected warp ship=${plan.shipID}`);
+        }
       }
       this._saveState();
       return result;
@@ -774,7 +819,9 @@ class ShipWarpFuelService extends BaseService {
       : null;
     this._send(
       session,
-      `Warp fuel used: ${plan.fuelUnits} units (${plan.distanceAU.toFixed(3)} AU).`,
+      plan.fuelExempt
+        ? `Capsule warp completed without fuel (${plan.distanceAU.toFixed(3)} AU).`
+        : `Warp fuel used: ${plan.fuelUnits} units (${plan.distanceAU.toFixed(3)} AU).`,
     );
     return result;
   }
@@ -786,6 +833,9 @@ class ShipWarpFuelService extends BaseService {
     const tracked = this._ship(shipID, characterID);
     const fuelProfile = this._shipFuelProfile(characterID, session);
     const fuel = shipID ? this.fuelQuantity(characterID, shipID, fuelProfile.fuelTypeID) : 0;
+    const fuelBayUsedUnits = shipID
+      ? this._allFuelRows(characterID, shipID).reduce((sum, item) => sum + quantityOf(item), 0)
+      : 0;
     const fuelDefinition = this._fuelDefinition(fuelProfile.fuelTypeID);
     const now = Date.now();
     return {
@@ -798,16 +848,21 @@ class ShipWarpFuelService extends BaseService {
       fuelName: fuelProfile.fuelName,
       fuelMultiplier: fuelDefinition.burnMultiplier,
       fuelUnits: fuel,
-      fuelCapacityUnits: this._config.fuelCapacityUnits,
+      fuelCapacityUnits: fuelProfile.fuelCapacityUnits,
+      fuelBayUsedUnits,
+      fuelExempt: fuelProfile.fuelExempt,
       shipClass: fuelProfile.shipClass,
       fuelUnitsPerAU: fuelProfile.fuelUnitsPerAU,
-      rangeAU: fuel / fuelProfile.fuelUnitsPerAU,
+      rangeAU: fuelProfile.fuelExempt || fuelProfile.fuelUnitsPerAU <= 0
+        ? 0
+        : fuel / fuelProfile.fuelUnitsPerAU,
       inSpace: isInSpaceSession(session),
       totalWarpAU: tracked.totalWarpAU,
       warpCount: tracked.warpCount,
       recentWarps: tracked.recentWarps,
       emergencyCooldownSeconds: Math.max(0, Math.ceil((character.cooldownUntilMs - now) / 1000)),
-      emergencyFuelUnits: this._config.emergencyFuelUnits,
+      emergencyFuelUnits: fuelProfile.emergencyFuelUnits,
+      emergencyFuelPercent: this._config.emergencyFuelPercent,
       emergencyFeeISK: this._config.emergencyFeeISK,
       debtISK: character.debtISK,
       fuelTypes: this._config.fuelTypes,
@@ -820,6 +875,8 @@ class ShipWarpFuelService extends BaseService {
       fuelTypeID: this._config.fuelTypeID,
       fuelTypes: this._config.fuelTypes,
       fuelCapacityUnits: this._config.fuelCapacityUnits,
+      fuelCapacityUnitsByClass: this._config.fuelCapacityUnitsByClass,
+      emergencyFuelPercent: this._config.emergencyFuelPercent,
       waypointEstimateEnabled: this._config.waypointEstimateEnabled,
       estimatedWarpAUPerGateJump: this._config.estimatedWarpAUPerGateJump,
       characters: Object.keys(this._state.characters).length,
@@ -912,7 +969,9 @@ class ShipWarpFuelService extends BaseService {
         result.state.fuelBayItems.some((item) => quantityOf(item) > 0);
       this._notify(
         session,
-        bayContainsFuel
+        result.state && result.state.fuelExempt
+          ? "Capsules are fuel-free; warp fuel cannot be loaded."
+          : bayContainsFuel
           ? `Cannot load ${fuelName}: the fuel bay already contains fuel or is full.`
           : `Cannot load ${fuelName}: no matching fuel was found in the ship's cargo hold.`,
       );
@@ -1186,6 +1245,17 @@ class ShipWarpFuelService extends BaseService {
     if (!characterID || !shipID || !isInSpaceSession(session)) {
       throw new Error("EMERGENCY_FUEL_REQUIRES_SPACE");
     }
+    const ship = this._activeShip(characterID, session);
+    if (this._shipClass(ship) === "capsule") {
+      throw new Error("EMERGENCY_FUEL_UNAVAILABLE_FOR_CAPSULE");
+    }
+    const capacityUnits = this.fuelCapacityUnitsForShip(ship);
+    const emergencyFuelUnits = this.emergencyFuelUnitsForShip(ship);
+    const fuelBayUsed = this._allFuelRows(characterID, shipID)
+      .reduce((sum, item) => sum + quantityOf(item), 0);
+    if (capacityUnits - fuelBayUsed < emergencyFuelUnits) {
+      throw new Error("EMERGENCY_FUEL_BAY_CAPACITY_EXCEEDED");
+    }
     const character = this._character(characterID);
     const now = Date.now();
     if (character.cooldownUntilMs > now) {
@@ -1205,7 +1275,7 @@ class ShipWarpFuelService extends BaseService {
       shipID,
       systemID: positive(session._space.systemID),
       fuelTypeID,
-      fuelUnits: this._config.emergencyFuelUnits,
+      fuelUnits: emergencyFuelUnits,
       feeISK: this._config.emergencyFeeISK,
       chargedISK: 0,
       debtISK: 0,
@@ -1228,7 +1298,7 @@ class ShipWarpFuelService extends BaseService {
       shipID,
       FUEL_BAY_FLAG,
       fuelTypeID,
-      this._config.emergencyFuelUnits,
+      emergencyFuelUnits,
       {
         receiptKey: `${MOD_ID}:emergency:${characterID}:${requestID}:fuel`,
         receiptMetadata: {characterID, shipID, requestID, kind: "emergency-fuel"},

@@ -72,6 +72,24 @@
     "minimumStackCount": 2,
     "maximumStackCount": 5
   },
+  "shipCargo": {
+    "chance": 0.33,
+    "targetVolumeM3": 1000000,
+    "minimumLoadFraction": 0.25,
+    "maximumLoadFraction": 0.9,
+    "minimumStackCount": 2,
+    "maximumStackCount": 5,
+    "minimumQuantity": 1,
+    "maximumQuantity": 1000,
+    "maximumItemVolumeM3": 1000000,
+    "rewardMultiplier": 10,
+    "allowedGroupIDs": [
+      25,
+      26,
+      463
+    ],
+    "referenceValueISKByTypeID": {}
+  },
   "plexReward": {
     "minimum": 10,
     "maximum": 20

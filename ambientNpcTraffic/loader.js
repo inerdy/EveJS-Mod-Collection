@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "ambientnpctraffic";
-const MOD_VERSION = "0.1.0";
+const MOD_VERSION = "0.1.1";
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const INSTALLED = Symbol.for("evejs.ambientNpcTraffic.loaderInstalled");
 

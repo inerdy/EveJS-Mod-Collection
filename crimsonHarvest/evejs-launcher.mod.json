@@ -11,6 +11,6 @@
   },
   "restart": "game_server",
   "compatibility": {
-    "evejsVersions": ["0.12.9"]
+    "evejsVersions": ["261018.1"]
   }
 }

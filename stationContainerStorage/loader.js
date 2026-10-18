@@ -12,7 +12,7 @@ const STATION_CONTAINER_TYPE_ID = 17366;
 // and capacity checks in place.
 const UNLIMITED_CAPACITY = 1_000_000_000_000;
 const INV_BROKER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}inventory${path.sep}invBrokerService.js`;
-const REPO_ROOT = path.resolve(__dirname, "..", "..");
+const REPO_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const INV_BROKER_PATH = path.join(
   REPO_ROOT,
   "server",

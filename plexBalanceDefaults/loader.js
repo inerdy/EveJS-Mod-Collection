@@ -24,7 +24,7 @@ const ORIGINAL_APPLY_CHARACTER = Symbol.for(
   "evejs.plexBalanceDefaults.originalApplyCharacter",
 );
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..");
+const REPO_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const TARGETS = Object.freeze({
   characterState: path.join(
     REPO_ROOT,

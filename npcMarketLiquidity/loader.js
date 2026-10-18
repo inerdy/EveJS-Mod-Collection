@@ -5,14 +5,15 @@ const path = require("node:path");
 
 const MOD_ID = "npcmarketliquidity";
 const MOD_VERSION = "0.6.4";
+const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const INSTALLED = Symbol.for("evejs.npcMarketLiquidity.loaderInstalled");
 
 function installMarketOrderCompatibilityBridge() {
   const {createCompatibleCall} = require("./lib/marketCompatibility");
   const marketDaemonClient = require(path.join(
-    __dirname,
-    "..", "..", "server", "src", "services", "market", "marketDaemonClient",
+    EVEJS_ROOT,
+    "server", "src", "services", "market", "marketDaemonClient",
   )).marketDaemonClient;
   const installed = Symbol.for("evejs.npcMarketLiquidity.marketBridgeInstalled");
   if (marketDaemonClient[installed]) return;

@@ -1,93 +1,55 @@
 "use strict";
 
-const path = require("node:path");
-
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
-const serverPath = (...segments) => path.join(REPO_ROOT, "server", "src", ...segments);
-const BaseService = require(serverPath("services", "baseService"));
-const log = require(serverPath("utils", "logger"));
-const {loadConfig} = require(path.join(__dirname, "config"));
+const BaseService = require(require("./runtime").serverPath("services", "baseService"));
+const log = require(require("./runtime").serverPath("utils", "logger"));
+const {loadConfig} = require("./config");
 const {
+  GATE_JUMP_LANDING_MAX_METERS,
+  GATE_JUMP_LANDING_MIN_METERS,
+  WARP_EXIT_SCATTER_MAX_METERS,
   buildApproachPoint,
+  buildInlineGateExitPoint,
   buildRoutePlan,
-  distanceSquared,
-  listAnchors,
+  canStartWarp,
   choose,
-} = require(path.join(__dirname, "routeEngine"));
-
-const MOD_ID = "ambientNpcTraffic";
-const FALLBACK_PROFILE_ID = "ore_mining_venture";
-const ARRIVAL_TOLERANCE_MULTIPLIER = 1.5;
-const LEG_DEADLINE_MULTIPLIER = 4;
-const BEHAVIOR_OVERRIDES = Object.freeze({
-  autoAggro: false,
-  autoActivateWeapons: false,
-  targetPreference: "none",
-  returnToHomeWhenIdle: false,
-});
-
-let runtimeDependencies = null;
-
-function getRuntimeDependencies() {
-  if (runtimeDependencies) {
-    return runtimeDependencies;
-  }
-  runtimeDependencies = Object.freeze({
-    npcRuntime: require(serverPath("space", "npc", "npcRuntime")),
-    npcService: require(serverPath("space", "npc", "npcService")),
-    spaceRuntime: require(serverPath("space", "runtime")),
-  });
-  return runtimeDependencies;
-}
-
-function positive(value, fallback = 0) {
-  const numeric = Math.trunc(Number(value) || 0);
-  return numeric > 0 ? numeric : fallback;
-}
-
-function finite(value, fallback = 0) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-}
-
-function normalizeSystemID(value) {
-  return positive(value, 0);
-}
-
-function isActiveScene(scene) {
-  return Boolean(
-    scene &&
-    normalizeSystemID(scene.systemID) > 0 &&
-    String(scene.sceneKind || "solarSystem").toLowerCase() !== "abyssal" &&
-    scene.sessions instanceof Map &&
-    scene.sessions.size > 0,
-  );
-}
-
-function entityIsWarping(entity) {
-  if (!entity) {
-    return false;
-  }
-  const mode = String(entity.mode || "").trim().toUpperCase();
-  return Boolean(
-    mode === "WARP" ||
-    entity.warpState ||
-    entity.pendingWarp ||
-    entity.sessionlessWarpIngress,
-  );
-}
-
-function currentEntityID(record) {
-  return positive(record && record.liveEntityID, 0);
-}
-
-function buildTrafficSeed(bootSeed, sequence, systemID) {
-  return `${bootSeed}:${sequence}:${systemID}`;
-}
-
-function buildTrafficID(bootSeed, sequence) {
-  return `ambient-${bootSeed}-${sequence}`;
-}
+  chooseGateLanding,
+  distanceSquared,
+  isHaulerProfile,
+  isWarpEntryReady,
+  isWithinGateJumpRange,
+  listActiveWarpPointFamilies,
+  listAnchors,
+  shipHasWarpCoreStabilizer,
+  warpDepartureDenial,
+} = require("./routeEngine");
+const {getRuntimeDependencies, serverPath} = require("./runtime");
+const {loadHaulerCargo} = require("./cargoOps");
+const {noteMissingEntity} = require("./wreckLoot");
+const {installWarpOverviewHook, installWreckLootHook} = require("./hooks");
+const {playJumpOut, playSpawnPresentation} = require("./trafficFx");
+const {
+  ARRIVAL_TOLERANCE_MULTIPLIER,
+  BEHAVIOR_OVERRIDES,
+  FALLBACK_PROFILE_ID,
+  GATE_APPROACH_POLL_MS,
+  GATE_APPROACH_TIMEOUT_MS,
+  GATE_JUMP_ANIMATION_MS,
+  HAULER_ALIGN_POLL_MS,
+  HAULER_ALIGN_TIMEOUT_MS,
+  LEG_DEADLINE_MULTIPLIER,
+  MIN_WARP_DISTANCE_METERS,
+  MOD_ID,
+} = require("./constants");
+const {
+  buildTrafficID,
+  buildTrafficSeed,
+  currentEntityID,
+  entityIsWarping,
+  finite,
+  isActiveScene,
+  normalizeSystemID,
+  positive,
+} = require("./util");
 
 class AmbientNpcTrafficService extends BaseService {
   constructor() {
@@ -97,6 +59,7 @@ class AmbientNpcTrafficService extends BaseService {
     this._seenSystems = new Set();
     this._lastSpawnAtBySystem = new Map();
     this._sequence = 0;
+    this._cargoCatalog = null;
     this._bootSeed = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
     this._ticker = null;
     this._tickInProgress = false;
@@ -162,15 +125,14 @@ class AmbientNpcTrafficService extends BaseService {
     this._lastTickAtMs = finite(nowMs, Date.now());
     try {
       const dependencies = getRuntimeDependencies();
+      installWreckLootHook(this);
+      installWarpOverviewHook(this);
       const activeScenes = this._activeScenes(dependencies.spaceRuntime);
-      this._virtualizeInactiveRecords(activeScenes, this._lastTickAtMs);
-      this._removeExpiredRecords(this._lastTickAtMs);
-
       for (const scene of activeScenes.values()) {
         this._tickActiveScene(scene, this._lastTickAtMs, dependencies);
       }
-    } catch (error) {
-      log.warn(`[${MOD_ID}] tick failed: ${error.message}`);
+      this._virtualizeInactiveRecords(activeScenes, this._lastTickAtMs);
+      this._removeExpiredRecords(this._lastTickAtMs);
     } finally {
       this._tickInProgress = false;
     }
@@ -214,13 +176,23 @@ class AmbientNpcTrafficService extends BaseService {
     ));
   }
 
-  _liveRecordsForSystem(systemID, scene) {
+  _liveRecordsForSystem(systemID, scene, dependencies) {
     return this._recordsForSystem(systemID).filter((record) => {
       const entityID = currentEntityID(record);
       if (!entityID) {
         return false;
       }
       if (scene && typeof scene.getEntityByID === "function" && scene.getEntityByID(entityID)) {
+        return true;
+      }
+      const outcome = noteMissingEntity(
+        record,
+        scene,
+        entityID,
+        this._lastTickAtMs,
+        dependencies,
+      );
+      if (outcome === "wait") {
         return true;
       }
       record.liveEntityID = 0;
@@ -232,7 +204,7 @@ class AmbientNpcTrafficService extends BaseService {
 
   _ensureTrafficCount(scene, nowMs, dependencies) {
     const systemID = normalizeSystemID(scene.systemID);
-    const liveRecords = this._liveRecordsForSystem(systemID, scene);
+    const liveRecords = this._liveRecordsForSystem(systemID, scene, dependencies);
     const targetCount = Math.min(
       this._config.maxShipsPerSystem,
       this._config.shipsPerActiveSystem,
@@ -242,9 +214,7 @@ class AmbientNpcTrafficService extends BaseService {
       this._config.initialShipsPerActiveSystem,
     );
     const firstVisit = !this._seenSystems.has(systemID);
-    const desiredCount = firstVisit
-      ? initialCount
-      : targetCount;
+    const desiredCount = firstVisit ? initialCount : targetCount;
     let currentCount = liveRecords.length;
     while (
       currentCount < desiredCount &&
@@ -296,9 +266,16 @@ class AmbientNpcTrafficService extends BaseService {
       expiresAtMs: nowMs + this._config.shipLifetimeMs,
       nextActionAtMs: nowMs,
       targetPoint: null,
+      gateAction: null,
+      postJumpHoldMs: 0,
+      approachDeadlineAtMs: 0,
       legStartedAtMs: 0,
       legDeadlineAtMs: 0,
       legIndex: 0,
+      hasWarpCoreStabilizer: shipHasWarpCoreStabilizer(seed),
+      cargoLoaded: false,
+      cargoAttempts: 0,
+      warpHoldReason: null,
     };
   }
 
@@ -396,7 +373,7 @@ class AmbientNpcTrafficService extends BaseService {
       runtimeEntityMetadata: {
         ambientNpcTraffic: true,
         ambientNpcTrafficID: record.trafficID,
-        visualOnly: true,
+        visualOnly: false,
       },
     });
     if (
@@ -422,19 +399,27 @@ class AmbientNpcTrafficService extends BaseService {
       return false;
     }
 
-    // These markers are runtime-only. The native ambient controller prevents
-    // combat behavior; targetable=false also keeps the client from presenting
-    // ordinary lock/attack affordances for this cosmetic traffic.
     entity.ambientNpcTraffic = true;
     entity.ambientNpcTrafficID = record.trafficID;
-    entity.visualOnly = true;
-    entity.targetable = false;
-    entity.lockable = false;
+    entity.visualOnly = false;
+    entity.targetable = true;
+    entity.lockable = true;
+    record.pendingWreckCargo = null;
+    record.wreckLootDeposited = false;
+    if (isHaulerProfile(record.profileID)) {
+      loadHaulerCargo(this, entity, record, dependencies);
+    }
 
+    const postJumpHoldMs = Math.max(0, Math.trunc(finite(record.postJumpHoldMs, 0)));
     record.liveEntityID = entityID;
     record.systemID = normalizeSystemID(scene.systemID);
     record.phase = "queued";
-    record.nextActionAtMs = nowMs + 1000;
+    record.removedByTraffic = false;
+    record.wreckWaitUntilMs = 0;
+    record.wreckLootDeposited = false;
+    record.postJumpHoldMs = 0;
+    record.nextActionAtMs = nowMs + (postJumpHoldMs > 0 ? postJumpHoldMs : 1000);
+    playSpawnPresentation(scene, entity, {jumpArrival: postJumpHoldMs > 0});
     record.expiresAtMs = nowMs + this._config.shipLifetimeMs;
 
     log.info(
@@ -450,6 +435,11 @@ class AmbientNpcTrafficService extends BaseService {
       ? scene.getEntityByID(entityID)
       : null;
     if (!entity) {
+      const outcome = noteMissingEntity(record, scene, entityID, nowMs, dependencies);
+      if (outcome === "wait") {
+        record.nextActionAtMs = nowMs + 1000;
+        return;
+      }
       record.liveEntityID = 0;
       record.phase = "virtual";
       record.nextActionAtMs = nowMs + this._config.virtualTravelMs;
@@ -458,9 +448,16 @@ class AmbientNpcTrafficService extends BaseService {
 
     entity.ambientNpcTraffic = true;
     entity.ambientNpcTrafficID = record.trafficID;
-    entity.visualOnly = true;
-    entity.targetable = false;
-    entity.lockable = false;
+    entity.visualOnly = false;
+    entity.targetable = true;
+    entity.lockable = true;
+    if (
+      isHaulerProfile(record.profileID) &&
+      record.cargoLoaded !== true &&
+      finite(record.cargoAttempts, 0) < 3
+    ) {
+      loadHaulerCargo(this, entity, record, dependencies);
+    }
 
     if (record.expiresAtMs <= nowMs) {
       this._despawnRecord(record, {broadcast: true}, dependencies);
@@ -471,11 +468,14 @@ class AmbientNpcTrafficService extends BaseService {
       return;
     }
 
-    if (record.phase === "queued" || record.phase === "virtual") {
+    if (record.phase === "aligning") {
+      this._tickHaulerAlign(record, scene, entity, nowMs, dependencies);
+      return;
+    }
+    if (record.phase === "queued" || record.phase === "virtual" || record.phase === "warp-ready") {
       this._startLeg(record, scene, nowMs, dependencies);
       return;
     }
-
     if (record.phase === "traveling") {
       const reached = !entityIsWarping(entity) && (
         distanceSquared(entity.position, record.targetPoint) <= (
@@ -485,20 +485,26 @@ class AmbientNpcTrafficService extends BaseService {
         ) || nowMs >= record.legDeadlineAtMs
       );
       if (reached) {
-        this._enterDwell(record, scene, nowMs, dependencies);
+        this._handleArrival(record, scene, entity, nowMs, dependencies);
       }
       return;
     }
-
+    if (record.phase === "approaching") {
+      this._tickGateApproach(record, scene, entity, nowMs, dependencies);
+      return;
+    }
+    if (record.phase === "jumping") {
+      this._finishGateTransit(record, nowMs, dependencies);
+      return;
+    }
     if (record.phase === "dwell") {
       if (nowMs < record.nextActionAtMs) {
         return;
       }
       if (record.routeKind === "cross-system") {
-        this._beginGateTransit(record, nowMs, dependencies);
+        this._commitGateTransit(record, scene, nowMs, dependencies);
         return;
       }
-
       record.currentAnchorID = record.destinationAnchorID;
       record.currentAnchorName = record.destinationAnchorName;
       record.legIndex += 1;
@@ -532,22 +538,66 @@ class AmbientNpcTrafficService extends BaseService {
       return;
     }
 
-    const targetPoint = buildApproachPoint(
+    const entity = scene.getEntityByID(entityID);
+    let targetPoint = record.targetPoint;
+    let stopDistance = finite(record.pendingStopDistance, 0);
+    if (record.phase !== "warp-ready" || !targetPoint) {
+      const warpTarget = this._resolveWarpTarget(record, entity, target, dependencies);
+      targetPoint = warpTarget.targetPoint;
+      stopDistance = warpTarget.stopDistance;
+      record.targetPoint = targetPoint;
+      record.pendingStopDistance = stopDistance;
+    }
+    if (
+      record.gateAction &&
+      entity &&
+      !canStartWarp(entity.position, targetPoint, MIN_WARP_DISTANCE_METERS)
+    ) {
+      record.phase = "queued";
+      this._handleArrival(record, scene, entity, nowMs, dependencies);
+      return;
+    }
+
+    if (isHaulerProfile(record.profileID) && entity && record.phase !== "warp-ready") {
+      this._beginHaulerAlign(record, scene, entity, targetPoint, nowMs, dependencies);
+      return;
+    }
+
+    const denial = entity ? this._warpDepartureDenial(record, scene, entity) : null;
+    if (denial) {
+      this._holdWarpDeparture(record, scene, entity, targetPoint, nowMs, dependencies, denial);
+      return;
+    }
+
+    const warpResult = this._requestWarp(
+      record,
+      scene,
+      entity,
+      entityID,
       target,
-      `${record.seed}:leg:${record.legIndex}`,
-      this._config.arrivalDistanceMeters,
+      targetPoint,
+      stopDistance,
+      dependencies,
     );
-    const warpResult = dependencies.npcRuntime.warpToPoint(entityID, targetPoint, {
-      targetEntityID: target.itemID,
-      forceImmediateStart: true,
-      broadcastWarpStartToVisibleSessions: true,
-      useNativeWarpProfile: true,
-      suppressCompletionStopUpdates: true,
-      scheduleWake: false,
-      ingressDurationMs: 2500,
-      visibilitySuppressMs: 250,
-    });
+    if (warpResult && warpResult.nativeGotoFallback === true && record.gateAction) {
+      record.targetPoint = targetPoint;
+      this._beginGateApproach(record, scene, entity, nowMs, dependencies);
+      return;
+    }
     if (!warpResult || warpResult.success !== true) {
+      if (
+        record.gateAction &&
+        entity &&
+        warpResult &&
+        warpResult.errorMsg === "WARP_DISTANCE_TOO_CLOSE"
+      ) {
+        this._handleArrival(record, scene, entity, nowMs, dependencies);
+        return;
+      }
+      if (entity && warpResult && warpResult.errorMsg === "WARP_DISRUPTED_BY_BUBBLE") {
+        this._holdWarpDeparture(record, scene, entity, targetPoint, nowMs, dependencies, "bubble");
+        return;
+      }
       record.nextActionAtMs = nowMs + this._config.spawnIntervalMs;
       log.warn(
         `[${MOD_ID}] route warp failed entity=${entityID} system=${scene.systemID} ` +
@@ -557,6 +607,7 @@ class AmbientNpcTrafficService extends BaseService {
     }
 
     record.phase = "traveling";
+    record.warpHoldReason = null;
     record.targetPoint = targetPoint;
     record.legStartedAtMs = nowMs;
     record.legDeadlineAtMs = nowMs + Math.max(
@@ -566,8 +617,281 @@ class AmbientNpcTrafficService extends BaseService {
     record.nextActionAtMs = nowMs + 5000;
     log.debug(
       `[${MOD_ID}] route leg entity=${entityID} system=${scene.systemID} ` +
-      `destination=${record.destinationAnchorName}`,
+      `destination=${record.destinationAnchorName} gate=${record.gateAction || "none"}`,
     );
+  }
+
+  _resolveWarpTarget(record, entity, target, dependencies) {
+    const gateTransit = String(target.kind || "").toLowerCase() === "stargate";
+    if (!gateTransit) {
+      record.gateAction = null;
+      return {
+        targetPoint: buildApproachPoint(
+          target,
+          `${record.seed}:leg:${record.legIndex}`,
+          this._config.arrivalDistanceMeters,
+        ),
+        stopDistance: 0,
+      };
+    }
+
+    record.gateAction = chooseGateLanding(`${record.seed}:gate:${record.legIndex}`);
+    const gateRadius = this._gateRadius(target, dependencies);
+    const approach = record.gateAction !== "jump";
+    const chosenSurfaceMeters = approach
+      ? this._config.gateApproachDistanceMeters
+      : (GATE_JUMP_LANDING_MIN_METERS + GATE_JUMP_LANDING_MAX_METERS) / 2;
+    const minSurfaceMeters = approach
+      ? Math.max(0, chosenSurfaceMeters - WARP_EXIT_SCATTER_MAX_METERS)
+      : GATE_JUMP_LANDING_MIN_METERS;
+    const maxSurfaceMeters = approach
+      ? chosenSurfaceMeters
+      : GATE_JUMP_LANDING_MAX_METERS;
+    return {
+      targetPoint: buildInlineGateExitPoint(
+        entity && entity.position,
+        target.position,
+        gateRadius,
+        {
+          chosenSurfaceMeters,
+          minSurfaceMeters,
+          maxSurfaceMeters,
+          seed: `${record.seed}:gate-exit:${record.legIndex}:${record.gateAction}`,
+        },
+      ),
+      stopDistance: 0,
+    };
+  }
+
+  _beginHaulerAlign(record, scene, entity, targetPoint, nowMs, dependencies) {
+    this._commandSubwarp(scene, entity, targetPoint, dependencies);
+    record.phase = "aligning";
+    record.targetPoint = targetPoint;
+    record.alignDeadlineAtMs = nowMs + HAULER_ALIGN_TIMEOUT_MS;
+    record.nextActionAtMs = nowMs + HAULER_ALIGN_POLL_MS;
+  }
+
+  _tickHaulerAlign(record, scene, entity, nowMs, dependencies) {
+    const denial = this._warpDepartureDenial(record, scene, entity);
+    if (denial) {
+      this._holdWarpDeparture(
+        record,
+        scene,
+        entity,
+        record.targetPoint,
+        nowMs,
+        dependencies,
+        denial,
+      );
+      return;
+    }
+    record.warpHoldReason = null;
+    const ready = isWarpEntryReady(entity, record.targetPoint);
+    if (ready || nowMs >= finite(record.alignDeadlineAtMs, 0)) {
+      record.phase = "warp-ready";
+      record.nextActionAtMs = nowMs;
+      this._startLeg(record, scene, nowMs, dependencies);
+      return;
+    }
+    if (String(entity.mode || "").trim().toUpperCase() !== "GOTO") {
+      this._commandSubwarp(scene, entity, record.targetPoint, dependencies);
+    }
+    record.nextActionAtMs = nowMs + HAULER_ALIGN_POLL_MS;
+  }
+
+  _commandSubwarp(scene, entity, targetPoint, dependencies) {
+    const dispatch = dependencies.destinyMovement &&
+      dependencies.destinyMovement.dispatchGotoPointEntity;
+    if (typeof dispatch === "function" && dispatch(scene, entity, targetPoint) === true) {
+      return true;
+    }
+    entity.mode = "GOTO";
+    entity.speedFraction = 1;
+    entity.targetPoint = {
+      x: finite(targetPoint && targetPoint.x, 0),
+      y: finite(targetPoint && targetPoint.y, 0),
+      z: finite(targetPoint && targetPoint.z, 0),
+    };
+    return true;
+  }
+
+  _holdWarpDeparture(record, scene, entity, targetPoint, nowMs, dependencies, reason) {
+    if (record.warpHoldReason !== reason) {
+      record.warpHoldReason = reason;
+      log.debug(
+        `[${MOD_ID}] warp held entity=${entity && entity.itemID} ` +
+        `system=${scene && scene.systemID} reason=${reason}`,
+      );
+    }
+    if (record.phase !== "aligning") {
+      this._commandSubwarp(scene, entity, targetPoint, dependencies);
+      record.phase = "aligning";
+      record.targetPoint = targetPoint;
+      record.alignDeadlineAtMs = nowMs + HAULER_ALIGN_TIMEOUT_MS;
+    } else if (String(entity && entity.mode || "").trim().toUpperCase() !== "GOTO") {
+      this._commandSubwarp(scene, entity, targetPoint, dependencies);
+    }
+    record.nextActionAtMs = nowMs + HAULER_ALIGN_POLL_MS;
+  }
+
+  _warpDepartureDenial(record, scene, entity) {
+    const state = entity && entity.hostileModuleState;
+    return warpDepartureDenial({
+      families: listActiveWarpPointFamilies(state && state.incomingEffects),
+      microwarpdriveBlocked: Boolean(state && state.microwarpdriveBlocked === true),
+      inBubble: this._isInsideWarpBubble(scene, entity),
+      hasWarpCoreStabilizer: record && record.hasWarpCoreStabilizer === true,
+    });
+  }
+
+  _isInsideWarpBubble(scene, entity) {
+    const systemID = normalizeSystemID(scene && scene.systemID);
+    if (!systemID || !entity) {
+      return false;
+    }
+    try {
+      const runtime = require(serverPath("services", "ship", "mobileWarpDisruptorRuntime"));
+      if (typeof runtime.findActiveWarpDisruptorForEntity !== "function") {
+        return false;
+      }
+      return Boolean(runtime.findActiveWarpDisruptorForEntity(systemID, entity));
+    } catch (error) {
+      log.debug(`[${MOD_ID}] warp bubble check failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  _requestWarp(_record, _scene, _entity, entityID, target, targetPoint, stopDistance, dependencies) {
+    return dependencies.npcRuntime.warpToPoint(entityID, targetPoint, {
+      targetEntityID: target.itemID,
+      stopDistance: Math.max(0, finite(stopDistance, 0)),
+      forceImmediateStart: true,
+      broadcastWarpStartToVisibleSessions: true,
+      useNativeWarpProfile: true,
+      suppressCompletionStopUpdates: true,
+      scheduleWake: false,
+      ingressDurationMs: 2500,
+      visibilitySuppressMs: 250,
+    });
+  }
+
+  _gateRadius(gate, dependencies) {
+    const resolver = dependencies &&
+      dependencies.stargateRadius &&
+      dependencies.stargateRadius.resolveStargatePhysicalRadius;
+    if (typeof resolver === "function") {
+      return Math.max(0, finite(resolver(gate), 0));
+    }
+    return Math.max(0, finite(gate && gate.radius, 0));
+  }
+
+  _isAtGate(entity, scene, record, dependencies) {
+    const gate = typeof scene.getEntityByID === "function"
+      ? scene.getEntityByID(positive(record.destinationAnchorID, 0))
+      : null;
+    if (!entity || !entity.position || !gate || !gate.position) {
+      return false;
+    }
+    return isWithinGateJumpRange(
+      entity.position,
+      gate.position,
+      this._gateRadius(gate, dependencies),
+      this._config.gateJumpRangeMeters,
+    );
+  }
+
+  _ensureGateDestination(record, scene) {
+    const systemID = normalizeSystemID(record.systemID);
+    const destinationSystemID = normalizeSystemID(record.destinationSystemID);
+    const destinationGateID = positive(record.destinationGateID, 0);
+    if (destinationGateID > 0 && destinationSystemID > 0 && destinationSystemID !== systemID) {
+      return true;
+    }
+
+    const gate = typeof scene.getEntityByID === "function"
+      ? scene.getEntityByID(positive(record.destinationAnchorID, 0))
+      : null;
+    const gateSystemID = normalizeSystemID(
+      gate && (gate.destinationSolarSystemID || gate.destinationSystemID),
+    );
+    const gateID = positive(gate && gate.destinationID, 0);
+    if (!gateSystemID || !gateID || gateSystemID === systemID) {
+      return false;
+    }
+
+    record.routeKind = "cross-system";
+    record.destinationSystemID = gateSystemID;
+    record.destinationGateID = gateID;
+    return true;
+  }
+
+  _commitGateTransit(record, scene, nowMs, dependencies) {
+    if (!this._ensureGateDestination(record, scene)) {
+      record.gateAction = null;
+      this._enterDwell(record, scene, nowMs, dependencies);
+      return;
+    }
+    this._startGateJump(record, scene, nowMs, dependencies);
+  }
+
+  _handleArrival(record, scene, entity, nowMs, dependencies) {
+    if (record.gateAction === "jump" && this._isAtGate(entity, scene, record, dependencies)) {
+      this._commitGateTransit(record, scene, nowMs, dependencies);
+      return;
+    }
+    if (record.gateAction) {
+      this._beginGateApproach(record, scene, entity, nowMs, dependencies);
+      return;
+    }
+    this._enterDwell(record, scene, nowMs, dependencies);
+  }
+
+  _beginGateApproach(record, scene, entity, nowMs, dependencies) {
+    if (entity && this._isAtGate(entity, scene, record, dependencies)) {
+      this._commitGateTransit(record, scene, nowMs, dependencies);
+      return;
+    }
+
+    const entityID = currentEntityID(record);
+    const gateID = positive(record.destinationAnchorID, 0);
+    if (entityID && gateID) {
+      const followResult = dependencies.npcRuntime.follow(
+        entityID,
+        gateID,
+        0,
+        {wakeController: false},
+      );
+      if (!followResult || followResult.success !== true) {
+        log.debug(`[${MOD_ID}] gate approach unavailable entity=${entityID}`);
+      }
+    }
+    record.phase = "approaching";
+    record.approachDeadlineAtMs = nowMs + GATE_APPROACH_TIMEOUT_MS;
+    record.nextActionAtMs = nowMs + GATE_APPROACH_POLL_MS;
+  }
+
+  _tickGateApproach(record, scene, entity, nowMs, dependencies) {
+    if (!entity) {
+      record.liveEntityID = 0;
+      record.phase = "virtual";
+      record.nextActionAtMs = nowMs + this._config.virtualTravelMs;
+      return;
+    }
+    if (
+      this._isAtGate(entity, scene, record, dependencies) ||
+      nowMs >= finite(record.approachDeadlineAtMs, 0)
+    ) {
+      this._commitGateTransit(record, scene, nowMs, dependencies);
+      return;
+    }
+    if (String(entity.mode || "").trim().toUpperCase() !== "FOLLOW") {
+      const gateID = positive(record.destinationAnchorID, 0);
+      const entityID = currentEntityID(record);
+      if (entityID && gateID) {
+        dependencies.npcRuntime.follow(entityID, gateID, 0, {wakeController: false});
+      }
+    }
+    record.nextActionAtMs = nowMs + GATE_APPROACH_POLL_MS;
   }
 
   _enterDwell(record, scene, nowMs, dependencies) {
@@ -588,7 +912,23 @@ class AmbientNpcTrafficService extends BaseService {
     record.nextActionAtMs = nowMs + this._config.dwellTimeMs;
   }
 
-  _beginGateTransit(record, nowMs, dependencies) {
+  _startGateJump(record, scene, nowMs, dependencies) {
+    const entityID = currentEntityID(record);
+    const entity = entityID && scene && typeof scene.getEntityByID === "function"
+      ? scene.getEntityByID(entityID)
+      : null;
+    const gate = scene && typeof scene.getEntityByID === "function"
+      ? scene.getEntityByID(positive(record.destinationAnchorID, 0))
+      : null;
+    if (entity && gate && playJumpOut(scene, entity, gate, dependencies)) {
+      record.phase = "jumping";
+      record.nextActionAtMs = nowMs + GATE_JUMP_ANIMATION_MS;
+      return;
+    }
+    this._finishGateTransit(record, nowMs, dependencies);
+  }
+
+  _finishGateTransit(record, nowMs, dependencies) {
     const entityID = currentEntityID(record);
     if (entityID) {
       this._despawnRecord(record, {broadcast: true}, dependencies);
@@ -608,6 +948,8 @@ class AmbientNpcTrafficService extends BaseService {
     record.destinationSystemID = destinationSystemID;
     record.destinationGateID = 0;
     record.routeKind = "local";
+    record.gateAction = null;
+    record.postJumpHoldMs = this._config.gateExitDelayMs;
     record.phase = "virtual";
     record.nextActionAtMs = nowMs + this._config.virtualTravelMs;
     record.expiresAtMs = nowMs + this._config.shipLifetimeMs;
@@ -628,15 +970,21 @@ class AmbientNpcTrafficService extends BaseService {
       }
 
       this._despawnRecord(record, {broadcast: false});
-      if (record.routeKind === "cross-system" && normalizeSystemID(record.destinationSystemID) !== record.systemID) {
-        record.systemID = normalizeSystemID(record.destinationSystemID);
-        record.currentAnchorID = positive(record.destinationGateID, record.destinationAnchorID);
-        record.currentAnchorName = "Destination stargate";
-        record.destinationAnchorID = 0;
-        record.destinationAnchorName = "";
-        record.destinationSystemID = record.systemID;
-        record.destinationGateID = 0;
-        record.routeKind = "local";
+      if (record.routeKind === "cross-system" && record.gateAction === "jump") {
+        const destinationSystemID = normalizeSystemID(record.destinationSystemID);
+        const destinationGateID = positive(record.destinationGateID, 0);
+        if (destinationSystemID && destinationGateID) {
+          record.systemID = destinationSystemID;
+          record.currentAnchorID = destinationGateID;
+          record.currentAnchorName = "Destination stargate";
+          record.destinationAnchorID = 0;
+          record.destinationAnchorName = "";
+          record.destinationSystemID = destinationSystemID;
+          record.destinationGateID = 0;
+          record.routeKind = "local";
+          record.gateAction = null;
+          record.postJumpHoldMs = this._config.gateExitDelayMs;
+        }
       } else {
         record.currentAnchorID = positive(record.destinationAnchorID, record.currentAnchorID);
         record.currentAnchorName = record.destinationAnchorName || record.currentAnchorName;
@@ -645,6 +993,8 @@ class AmbientNpcTrafficService extends BaseService {
         record.destinationSystemID = record.systemID;
         record.destinationGateID = 0;
         record.routeKind = "local";
+        record.gateAction = null;
+        record.postJumpHoldMs = 0;
       }
       record.phase = "virtual";
       record.nextActionAtMs = nowMs + this._config.virtualTravelMs;
@@ -663,6 +1013,7 @@ class AmbientNpcTrafficService extends BaseService {
   }
 
   _despawnRecord(record, options = {}, dependencies = null) {
+    record.removedByTraffic = true;
     const entityID = currentEntityID(record);
     record.liveEntityID = 0;
     if (!entityID) {

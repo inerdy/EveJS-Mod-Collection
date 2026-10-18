@@ -48,7 +48,7 @@ assert.deepEqual(packageFiles.sort(), [
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npcminingwing");
-assert.equal(manifest.version, "0.12.12");
+assert.equal(manifest.version, "0.12.13");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -183,11 +183,14 @@ assert.match(service, /NPC_WING_OPERATION_IN_PROGRESS/);
 assert.match(service, /markCollectionUnavailableStates/);
 assert.match(service, /deferCollectionTrip/);
 assert.match(service, /clearCollectionTripRetry/);
+assert.match(service, /collection-trip-remote-arrival/);
+assert.match(service, /completeCollectionTripDock/);
 assert.match(service, /nextRuntimeFailure/);
 assert.match(service, /runtimeFailureIsCoolingDown/);
 assert.match(wingState, /markCollectionUnavailableStates/);
 assert.match(wingState, /deferCollectionTrip/);
 assert.match(wingState, /clearCollectionTripRetry/);
+assert.match(wingState, /completeCollectionTripDock/);
 assert.match(wingState, /nextRuntimeFailure/);
 assert.match(wingState, /serializePersistentState/);
 assert.match(wingState, /serializePersistentMiningStates/);

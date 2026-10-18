@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", ".."));
 const serverPath = (...segments) => path.join(REPO_ROOT, "server", "src", ...segments);
 const BaseService = require(serverPath("services", "baseService"));
 const log = require(serverPath("utils", "logger"));
@@ -269,10 +269,26 @@ function buildContractInfo({
   };
 }
 
-function buildMultiCargoContractInfo({config, origin, destination, cargoItems, jumps}) {
+function buildMultiCargoContractInfo({
+  config,
+  origin,
+  destination,
+  cargoItems,
+  jumps,
+  cargoKind = "minerals",
+}) {
   const totals = calculateCargoTotals(cargoItems);
   const first = cargoItems[0];
-  const itemNames = cargoItems.map((entry) => `${entry.quantity} ${entry.metadata.name || `Type ${entry.item.typeID}`}`);
+  const itemNames = cargoItems.map((entry) => (
+    `${entry.quantity} ${entry.metadata.name || `Type ${entry.item.typeID}`}`
+  ));
+  const shipCount = cargoItems.reduce((sum, entry) => sum + entry.quantity, 0);
+  const manifestRows = cargoItems.map((entry) => (
+    `- ${entry.quantity} x ${entry.metadata.name || `Type ${entry.item.typeID}`}`
+  ));
+  const manifestSummary = cargoItems.map((entry) => (
+    `${entry.quantity}x ${entry.metadata.name || `Type ${entry.item.typeID}`}`
+  )).join(", ");
   const info = buildContractInfo({
     config,
     origin,
@@ -289,18 +305,42 @@ function buildMultiCargoContractInfo({config, origin, destination, cargoItems, j
     volumeM3: totals.volumeM3,
     security: Math.min(finite(origin.security, 0), finite(destination.security, 0)),
     config,
+    rewardMultiplier: cargoKind === "ships" ? config.shipCargo.rewardMultiplier : 1,
+    minimumISK: config.reward.minimumISK * (
+      cargoKind === "ships" ? config.shipCargo.rewardMultiplier : 1
+    ),
+    maximumISK: config.reward.maximumISK * (
+      cargoKind === "ships" ? config.shipCargo.rewardMultiplier : 1
+    ),
   });
   info.collateral = calculateCollateral(totals.referenceValueISK, config);
   info.itemSummary = itemNames.join(", ");
   info.title = `${config.templates.titlePrefix} ${replaceTemplate(config.templates.title, {
-    item: `${cargoItems.length} cargo stacks`,
+    item: cargoKind === "ships"
+      ? `${shipCount} packaged ships: ${manifestSummary}`
+      : `${cargoItems.length} mineral cargo stacks: ${manifestSummary}`,
     originSystem: systemLabel(origin),
     destinationSystem: systemLabel(destination),
     jumps,
   })}`.slice(0, 200);
-    info.description = `Transport ${itemNames.join(", ")} from ${stationLabel(origin)} to ${stationLabel(destination)}. ` +
-    `Route: ${jumps} stargate jumps. Total volume: ${Math.round(totals.volumeM3 * 100) / 100} m3.`;
+  info.description = cargoKind === "ships"
+    ? `One sealed courier package contains ${shipCount} packaged ships across ` +
+      `${cargoItems.length} hull types.\nPackaged ship manifest:\n` +
+      `${manifestRows.join("\n")}\n\n` +
+      `Route: ${stationLabel(origin)} to ${stationLabel(destination)} (${jumps} stargate jumps).\n` +
+      `Total packaged volume: ${Math.round(totals.volumeM3 * 100) / 100} m3. ` +
+      `Contract volume reflects the cargo inside the wrap.`
+    : `One sealed courier package contains ${cargoItems.length} mineral cargo stacks:\n` +
+      `${manifestRows.join("\n")}\n\n` +
+      `Route: ${stationLabel(origin)} to ${stationLabel(destination)} (${jumps} stargate jumps).\n` +
+      `Total cargo volume: ${Math.round(totals.volumeM3 * 100) / 100} m3. ` +
+      `Contract volume reflects the cargo inside the wrap.`;
   return info;
+}
+
+function chooseCargoKind(seed, shipCargoChance) {
+  const chance = Math.max(0, Math.min(1, finite(shipCargoChance, 0)));
+  return hashUnit(`${seed}:cargo-kind`) < chance ? "ships" : "minerals";
 }
 
 class NpcCourierContractsService extends BaseService {
@@ -713,6 +753,7 @@ class NpcCourierContractsService extends BaseService {
       worldData: require(serverPath("space", "worldData")),
       contractRuntime: require(serverPath("services", "contracts", "contractRuntimeState")),
       itemStore: require(serverPath("services", "inventory", "itemStore")),
+      shipTypeRegistry: require(serverPath("services", "chat", "shipTypeRegistry")),
       walletState: require(serverPath("services", "account", "walletState")),
       corpWalletState: require(serverPath("services", "corporation", "corpWalletState")),
       corporationState: require(serverPath("services", "corporation", "corporationState")),
@@ -1323,34 +1364,70 @@ class NpcCourierContractsService extends BaseService {
     ) {
       return false;
     }
-    const item = itemStore.findItemById(entry.itemID);
-    if (
-      !item ||
-      positive(item.ownerID, 0) !== this._issuer.corporationID ||
-      positive(item.locationID, 0) !== positive(entry.originStationID, 0) ||
-      positive(item.typeID, 0) !== positive(entry.typeID, 0)
-    ) {
-      return false;
-    }
     const contractHangarFlag = corporationContractHangarFlag(this._config);
-    if (positive(item.flagID, 0) === contractHangarFlag) {
-      return true;
+    const cargoItems = Array.isArray(entry.items) && entry.items.length > 0
+      ? entry.items
+      : (positive(entry.typeID, 0) && positive(entry.quantity, 0)
+        ? [{typeID: entry.typeID, quantity: entry.quantity, itemID: entry.itemID}]
+        : []);
+    if (cargoItems.length === 0) return false;
+
+    for (let index = 0; index < cargoItems.length; index += 1) {
+      const cargo = cargoItems[index];
+      let itemID = positive(cargo.itemID, 0);
+      if (!itemID) {
+        const grantResult = itemStore.grantItemToOwnerLocationIdempotent(
+          this._issuer.corporationID,
+          entry.originStationID,
+          contractHangarFlag,
+          cargo.typeID,
+          cargo.quantity,
+          {
+            receiptKey: `${MOD_ID}:${entry.jobKey}:cargo:${index}`,
+            receiptMetadata: {mod: MOD_ID, jobKey: entry.jobKey, stackIndex: index},
+            ...(entry.cargoKind === "ships" ? {singleton: 0} : {}),
+          },
+        );
+        if (!grantResult || grantResult.success !== true || grantResult.durable !== true) {
+          return false;
+        }
+        itemID = this._extractGrantedItemID(grantResult);
+        if (!itemID) return false;
+        cargo.itemID = itemID;
+        if (index === 0) entry.itemID = itemID;
+        this._stateStore.save(this._state);
+      }
+
+      const item = itemStore.findItemById(itemID);
+      if (
+        !item ||
+        positive(item.ownerID, 0) !== this._issuer.corporationID ||
+        positive(item.locationID, 0) !== positive(entry.originStationID, 0) ||
+        positive(item.typeID, 0) !== positive(cargo.typeID, 0)
+      ) {
+        return false;
+      }
+      if (positive(item.flagID, 0) === contractHangarFlag) continue;
+
+      const updateResult = itemStore.updateInventoryItem(
+        itemID,
+        (current) => (
+          positive(current.ownerID, 0) === this._issuer.corporationID &&
+          positive(current.locationID, 0) === positive(entry.originStationID, 0) &&
+          positive(current.typeID, 0) === positive(cargo.typeID, 0)
+            ? {...current, flagID: contractHangarFlag}
+            : current
+        ),
+      );
+      if (
+        !updateResult ||
+        updateResult.success !== true ||
+        positive(updateResult.data && updateResult.data.flagID, 0) !== contractHangarFlag
+      ) {
+        return false;
+      }
     }
-    const updateResult = itemStore.updateInventoryItem(
-      entry.itemID,
-      (current) => (
-        positive(current.ownerID, 0) === this._issuer.corporationID &&
-        positive(current.locationID, 0) === positive(entry.originStationID, 0) &&
-        positive(current.typeID, 0) === positive(entry.typeID, 0)
-          ? {...current, flagID: contractHangarFlag}
-          : current
-      ),
-    );
-    return Boolean(
-      updateResult &&
-      updateResult.success === true &&
-      positive(updateResult.data && updateResult.data.flagID, 0) === contractHangarFlag,
-    );
+    return true;
   }
 
   async _retryRecoveryEntries(dependencies, nowMs) {
@@ -1359,34 +1436,40 @@ class NpcCourierContractsService extends BaseService {
         entry &&
         entry.state === "recovery" &&
         positive(entry.contractID, 0) === 0 &&
-        positive(entry.itemID, 0) > 0
+        (positive(entry.itemID, 0) > 0 || (Array.isArray(entry.items) && entry.items.length > 0))
       ));
     for (const entry of entries) {
       const origin = this._stationsByID.get(positive(entry.originStationID, 0));
       const destination = this._stationsByID.get(positive(entry.destinationStationID, 0));
-      const itemMetadata = dependencies.itemStore.getItemMetadata(entry.typeID);
-      if (!origin || !destination || !itemMetadata) {
+      const cargoItems = Array.isArray(entry.items) && entry.items.length > 0
+        ? entry.items
+        : [{typeID: entry.typeID, quantity: entry.quantity, itemID: entry.itemID}];
+      const contractCargo = cargoItems.map((cargo) => ({
+        item: {typeID: cargo.typeID, referenceValueISK: 0},
+        metadata: dependencies.itemStore.getItemMetadata(cargo.typeID),
+        quantity: cargo.quantity,
+      }));
+      if (
+        !origin ||
+        !destination ||
+        contractCargo.some((cargo) => !cargo.metadata || finite(cargo.metadata.volume, 0) <= 0)
+      ) {
         continue;
       }
       if (!this._prepareRecoveryCargo(entry, dependencies)) {
         continue;
       }
-      const item = {
-        typeID: entry.typeID,
-        referenceValueISK: 0,
-      };
-      const info = buildContractInfo({
+      const info = buildMultiCargoContractInfo({
         config: this._config,
         origin,
         destination,
-        item,
-        itemMetadata,
-        quantity: entry.quantity,
+        cargoItems: contractCargo,
         jumps: entry.jumps,
+        cargoKind: entry.cargoKind,
       });
       info.reward = entry.reward;
       info.collateral = entry.collateral;
-      info.itemList = [[entry.itemID, entry.quantity]];
+      info.itemList = cargoItems.map((cargo) => [cargo.itemID, cargo.quantity]);
       await this._submitContract(entry, info, dependencies, nowMs);
     }
   }
@@ -1488,41 +1571,117 @@ class NpcCourierContractsService extends BaseService {
     };
   }
 
-  _chooseCargo(seed, dependencies) {
-    const catalog = this._config.cargoCatalog;
-    const targetVolume = this._config.cargo.referenceVolumeM3 * (
-      this._config.cargo.minimumLoadFraction +
+  _getShipCargoCatalog(dependencies) {
+    const registry = dependencies.shipTypeRegistry;
+    const itemStore = dependencies.itemStore;
+    if (!registry || typeof registry.getAllShipTypes !== "function" || !itemStore) {
+      return [];
+    }
+    const allowedGroupIDs = new Set(this._config.shipCargo.allowedGroupIDs);
+    const referenceValues = this._config.shipCargo.referenceValueISKByTypeID;
+    const shipTypes = registry.getAllShipTypes({includeUnpublished: false});
+    return (Array.isArray(shipTypes) ? shipTypes : [])
+      .filter((ship) => ship && ship.published !== false)
+      .map((ship) => {
+        const typeID = positive(ship.typeID, 0);
+        if (!typeID) return null;
+        const metadata = itemStore.getItemMetadata(typeID);
+        const shipMetadata = typeof itemStore.getShipMetadata === "function"
+          ? itemStore.getShipMetadata(typeID)
+          : ship;
+        const groupID = positive(ship.groupID, positive(metadata && metadata.groupID, 0));
+        const categoryID = positive(metadata && metadata.categoryID, positive(ship.categoryID, 0));
+        const volume = finite(metadata && metadata.volume, 0);
+        const staticReferenceValueISK = finite(shipMetadata && shipMetadata.basePrice, 0) ||
+          finite(ship.basePrice, 0);
+        const referenceValueISK = finite(
+          referenceValues[String(typeID)],
+          staticReferenceValueISK,
+        );
+        if (
+          categoryID !== 6 ||
+          !allowedGroupIDs.has(groupID) ||
+          volume <= 0 ||
+          referenceValueISK <= 0
+        ) {
+          return null;
+        }
+        return {
+          item: {typeID, referenceValueISK},
+          metadata,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.item.typeID - right.item.typeID);
+  }
+
+  _chooseCargo(seed, dependencies, cargoKind = "minerals") {
+    const isShipCargo = cargoKind === "ships";
+    const profile = isShipCargo ? this._config.shipCargo : this._config.cargo;
+    const catalog = isShipCargo
+      ? this._getShipCargoCatalog(dependencies)
+      : this._config.cargoCatalog.map((item) => ({item, metadata: null}));
+    const targetVolume = profile.targetVolumeM3 || profile.referenceVolumeM3;
+    const targetLoadVolume = targetVolume * (
+      profile.minimumLoadFraction +
       hashUnit(`${seed}:load`) * (
-        this._config.cargo.maximumLoadFraction - this._config.cargo.minimumLoadFraction
+        profile.maximumLoadFraction - profile.minimumLoadFraction
       )
     );
     const stackCount = Math.min(
       catalog.length,
-      this._config.cargo.minimumStackCount + Math.floor(
+      profile.minimumStackCount + Math.floor(
         hashUnit(`${seed}:stacks`) * (
-          this._config.cargo.maximumStackCount - this._config.cargo.minimumStackCount + 1
+          profile.maximumStackCount - profile.minimumStackCount + 1
         ),
       ),
     );
+    let selected;
+    if (isShipCargo) {
+      selected = catalog
+        .map((entry) => ({
+          ...entry,
+          selection: hashUnit(`${seed}:ship:${entry.item.typeID}`),
+        }))
+        .sort((left, right) => left.selection - right.selection || left.item.typeID - right.item.typeID)
+        .slice(0, stackCount);
+    } else {
+      selected = Array.from({length: stackCount}, (_unused, index) => (
+        catalog[Math.floor(hashUnit(`${seed}:item:${index}`) * catalog.length)]
+      ));
+    }
     const cargoItems = [];
-    for (let index = 0; index < stackCount; index += 1) {
-      const item = catalog[Math.floor(hashUnit(`${seed}:item:${index}`) * catalog.length)];
-      const metadata = dependencies.itemStore.getItemMetadata(item.typeID);
+    let remainingTargetVolume = targetLoadVolume;
+    for (let index = 0; index < selected.length; index += 1) {
+      const selectedEntry = selected[index];
+      const item = selectedEntry.item;
+      const metadata = selectedEntry.metadata || dependencies.itemStore.getItemMetadata(item.typeID);
       const volume = finite(metadata && metadata.volume, 0);
       if (!metadata || volume <= 0) continue;
-      const remainingStacks = stackCount - index;
-      const share = targetVolume / remainingStacks;
-      const minimumQuantity = Math.max(1, Math.trunc(item.minimumQuantity));
+      const remainingStacks = selected.length - index;
+      const share = (isShipCargo ? remainingTargetVolume : targetLoadVolume) / remainingStacks;
+      const minimumQuantity = isShipCargo
+        ? profile.minimumQuantity
+        : Math.max(1, Math.trunc(item.minimumQuantity));
+      const configuredMaximumQuantity = isShipCargo
+        ? profile.maximumQuantity
+        : item.maximumQuantity;
+      const maximumVolumeM3 = isShipCargo
+        ? profile.maximumItemVolumeM3
+        : item.maximumVolumeM3;
       const maximumQuantity = Math.min(
-        Math.max(minimumQuantity, Math.trunc(item.maximumQuantity)),
-        Math.floor(item.maximumVolumeM3 / volume),
+        Math.max(minimumQuantity, Math.trunc(configuredMaximumQuantity)),
+        Math.floor(maximumVolumeM3 / volume),
       );
       if (maximumQuantity < minimumQuantity) continue;
       const desired = Math.max(minimumQuantity, Math.round(share / volume));
       const quantity = Math.min(maximumQuantity, desired);
       cargoItems.push({item, metadata, quantity});
+      if (isShipCargo) {
+        remainingTargetVolume = Math.max(0, remainingTargetVolume - quantity * volume);
+      }
     }
-    return cargoItems.length >= this._config.cargo.minimumStackCount ? cargoItems : null;
+    return cargoItems.length >= profile.minimumStackCount ? cargoItems : null;
   }
 
   async _createOne(origin, activeTotal, dependencies, nowMs, routeOverride = null) {
@@ -1553,7 +1712,12 @@ class NpcCourierContractsService extends BaseService {
 
     const destination = destinationChoice.station;
     const jumps = destinationChoice.jumps;
-    const cargo = this._chooseCargo(seed, dependencies);
+    let cargoKind = chooseCargoKind(seed, this._config.shipCargo.chance);
+    let cargo = this._chooseCargo(seed, dependencies, cargoKind);
+    if (!cargo && cargoKind === "ships") {
+      cargoKind = "minerals";
+      cargo = this._chooseCargo(seed, dependencies, cargoKind);
+    }
     if (!cargo) {
       log.warn(`[${MOD_ID}] cargo catalog could not produce a valid item for job=${jobKey}`);
       this._stateStore.save(this._state);
@@ -1565,6 +1729,7 @@ class NpcCourierContractsService extends BaseService {
       destination,
       cargoItems: cargo,
       jumps,
+      cargoKind,
     });
     const plexMinimum = this._config.plexReward.minimum;
     const plexMaximum = this._config.plexReward.maximum;
@@ -1596,6 +1761,7 @@ class NpcCourierContractsService extends BaseService {
       state: "creating",
       lastStatus: null,
       lastEvent: "creating",
+      cargoKind,
       originStationID: origin.stationID,
       destinationStationID: destination.stationID,
       typeID: cargo[0].item.typeID,
@@ -1624,6 +1790,7 @@ class NpcCourierContractsService extends BaseService {
         {
           receiptKey: `${receiptKey}:${index}`,
           receiptMetadata: {mod: MOD_ID, jobKey, stackIndex: index},
+          ...(cargoKind === "ships" ? {singleton: 0} : {}),
         },
       );
       if (!grantResult || grantResult.success !== true || grantResult.durable !== true) {
@@ -1637,6 +1804,11 @@ class NpcCourierContractsService extends BaseService {
         break;
       }
       grantedItems.push({itemID, typeID: entry.item.typeID, quantity: entry.quantity});
+      this._state.contracts[jobKey].items[index].itemID = itemID;
+      if (index === 0) {
+        this._state.contracts[jobKey].itemID = itemID;
+      }
+      this._stateStore.save(this._state);
     }
     if (grantedItems.length !== cargo.length) {
       entry.state = "recovery";
@@ -1765,6 +1937,8 @@ class NpcCourierContractsService extends BaseService {
 
 NpcCourierContractsService._testing = {
   buildContractInfo,
+  buildMultiCargoContractInfo,
+  chooseCargoKind,
   fileTimeToMs,
   isExpired,
   normalizeState: (value) => require(path.join(__dirname, "state")).normalizeState(value),

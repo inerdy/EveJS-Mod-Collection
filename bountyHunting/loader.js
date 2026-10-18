@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const MOD_ID = "bountyhunting";
 const MOD_VERSION = "0.1.2";
+const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const KILLMAIL_TRACKER_SUFFIX = `${path.sep}server${path.sep}space${path.sep}combat${path.sep}killmailTracker.js`;
 const SPACE_RUNTIME_SUFFIX = `${path.sep}server${path.sep}space${path.sep}runtime.js`;
@@ -375,19 +376,19 @@ function installHooks() {
   Module._load = load;
 
   patchCachedModule(
-    path.join(__dirname, "..", "..", "server", "src", "space", "combat", "killmailTracker"),
+    path.join(EVEJS_ROOT, "server", "src", "space", "combat", "killmailTracker"),
     wrapKillmailTracker,
   );
   patchCachedModule(
-    path.join(__dirname, "..", "..", "server", "src", "space", "runtime"),
+    path.join(EVEJS_ROOT, "server", "src", "space", "runtime"),
     wrapSpaceRuntime,
   );
   patchCachedModule(
-    path.join(__dirname, "..", "..", "server", "src", "services", "bounty", "bountyRuntime"),
+    path.join(EVEJS_ROOT, "server", "src", "services", "bounty", "bountyRuntime"),
     wrapBountyRuntime,
   );
   patchCachedModule(
-    path.join(__dirname, "..", "..", "server", "src", "services", "serviceManager"),
+    path.join(EVEJS_ROOT, "server", "src", "services", "serviceManager"),
     wrapServiceManager,
   );
 }

@@ -8,10 +8,11 @@ import evejs_mod_menu as mods
 import uthread
 from carbonui import uiconst
 from carbonui.control.scrollContainer import ScrollContainer
-from carbonui.control.tabGroup import TabGroup
 from carbonui.control.window import Window
 from carbonui.primitives.container import Container
-from eve.client.script.ui.control.eveLabel import EveLabelMedium
+from carbonui.primitives.containerAutoSize import ContainerAutoSize
+from carbonui.primitives.fill import Fill
+from eve.client.script.ui.control.eveLabel import Label
 
 
 _WINDOW_ID = 'ServerHealthMonitorWindow'
@@ -36,6 +37,21 @@ _GM_ROLE_MASK = (
 
 def _color(color, text):
     return '<color=%s>%s</color>' % (color, text)
+
+
+def _label(parent, text='', **kwargs):
+    kwargs.setdefault('align', uiconst.TOTOP)
+    kwargs.setdefault('autoFitToText', True)
+    kwargs.setdefault('fontsize', 13)
+    kwargs.setdefault('state', uiconst.UI_DISABLED)
+    return Label(parent=parent, text=text, **kwargs)
+
+
+def _section(parent, title):
+    panel = ContainerAutoSize(parent=parent, align=uiconst.TOTOP, padBottom=12)
+    Fill(bgParent=panel, color=(0.05, 0.08, 0.1, 0.9))
+    _label(panel, title, fontsize=12, color=(0.45, 0.77, 0.8, 1), padding=(10, 8, 10, 6))
+    return panel
 
 
 def _number(value, default=0.0):
@@ -116,82 +132,38 @@ class ServerHealthMonitorWindow(Window):
     default_windowID = _WINDOW_ID
     default_caption = 'Server Health Monitor'
     default_width = 520
-    default_height = 520
+    default_height = 500
+    default_minSize = (470, 420)
     default_scope = uiconst.SCOPE_INGAME
 
     def ApplyAttributes(self, attributes):
         Window.ApplyAttributes(self, attributes)
         self._closed = False
         self._generation = 0
-        self._tabs = TabGroup(
-            parent=self.content,
-            align=uiconst.TOTOP,
-            height=26,
-            padLeft=8,
-            padRight=8,
-        )
-        self._scroll = ScrollContainer(
-            parent=self.content,
-            align=uiconst.TOALL,
-            padding=(8, 2, 8, 8),
-        )
-        self._body = Container(
-            parent=self._scroll,
-            align=uiconst.TOTOP,
-            height=780,
-        )
-        self._scene_scroll = ScrollContainer(
-            parent=self.content,
-            align=uiconst.TOALL,
-            padding=(8, 2, 8, 8),
-        )
-        self._scene_body = Container(
-            parent=self._scene_scroll,
-            align=uiconst.TOTOP,
-            height=780,
-        )
-        self._scene_diagnostics = EveLabelMedium(
-            parent=self._scene_body,
-            align=uiconst.TOTOP,
-            height=760,
-            padLeft=10,
-            padTop=8,
-            text=_color(_COLOR_MUTED, 'Loading scene diagnostics...'),
-        )
-        self._tabs.AddTab('Overview', self._scroll)
-        self._tabs.AddTab('Scene Diagnostics', self._scene_scroll)
-        self._summary = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=126,
-            padLeft=10,
-            padTop=8,
-            text='Loading server health...',
-        )
-        self._performance = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=150,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._heartbeat = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=70,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
-        self._history = EveLabelMedium(
-            parent=self._body,
-            align=uiconst.TOTOP,
-            height=400,
-            padLeft=10,
-            padTop=4,
-            text='',
-        )
+        Fill(bgParent=self.content, color=(0.025, 0.04, 0.05, 0.9))
+        header = ContainerAutoSize(parent=self.content, align=uiconst.TOTOP, padding=(12, 8, 12, 10))
+        self._hero = _label(header, 'SERVER HEALTH', fontsize=16, padBottom=5)
+        self._hero_meta = _label(header, 'Loading live telemetry...', color=(0.65, 0.73, 0.77, 1), padBottom=8)
+        track = Container(parent=header, align=uiconst.TOTOP, height=6, padBottom=2)
+        Fill(bgParent=track, color=(0.15, 0.21, 0.24, 1))
+        self._gauge = Fill(parent=track, align=uiconst.TOLEFT_PROP, width=0, color=(0.32, 0.84, 0.83, 1))
+        footer = ContainerAutoSize(parent=self.content, align=uiconst.TOBOTTOM,
+                                  alignMode=uiconst.TOTOP, padding=(12, 4, 12, 6))
+        self._status = _label(footer, 'GM diagnostics available  |  Refreshes every 2 seconds',
+                              color=(0.65, 0.73, 0.77, 1))
+        self._scroll = ScrollContainer(parent=self.content, align=uiconst.TOALL, padding=(12, 0, 12, 6))
+        self._body = ContainerAutoSize(parent=self._scroll, align=uiconst.TOTOP)
+        live = _section(self._body, 'LIVE SERVER STATUS')
+        self._summary = _label(live, 'Loading server health...', padding=(10, 0, 10, 8))
+        performance = _section(self._body, 'PERFORMANCE')
+        self._performance = _label(performance, '', padding=(10, 0, 10, 8))
+        heartbeat = _section(self._body, 'HEARTBEAT')
+        self._heartbeat = _label(heartbeat, '', padding=(10, 0, 10, 8))
+        history = _section(self._body, 'RECENT HEALTH SAMPLES')
+        self._history = _label(history, '', padding=(10, 0, 10, 8))
+        diagnostics = _section(self._body, 'SCENE DIAGNOSTICS')
+        self._scene_diagnostics = _label(diagnostics, _color(_COLOR_MUTED, 'Loading scene diagnostics...'),
+                                         padding=(10, 0, 10, 8))
         self._load()
         uthread.new(self._refresh_loop, self._generation)
 
@@ -208,11 +180,10 @@ class ServerHealthMonitorWindow(Window):
             if not self.destroyed:
                 self._render(state)
                 self._render_scene_diagnostics(state)
+                self._status.text = 'GM diagnostics available  |  Refreshes every 2 seconds'
         except Exception as error:
             if not self.destroyed:
-                self._summary.SetText(
-                    _color(_COLOR_STALLED, 'Server Health Monitor unavailable: %s' % error)
-                )
+                self._status.text = _color(_COLOR_STALLED, 'Server Health Monitor unavailable: %s' % error)
 
     def _refresh_loop(self, generation):
         while not self._closed and generation == self._generation:
@@ -235,29 +206,31 @@ class ServerHealthMonitorWindow(Window):
         transition_text = ''
         if transition.get('active'):
             transition_text = ' (%s)' % str(transition.get('kind', 'transition')).replace('-', ' ')
-        tick_duration = current.get('tickDurationMs')
-        tick_lateness = current.get('tickLatenessMs')
-        runtime_text = (
-            'Tick duration: %s | Tick lateness: %s' % (
-                _format_ms(tick_duration),
-                _format_ms(tick_lateness),
-            )
+        event_loop_delay = _number(current.get('eventLoopDelayMs'), 0)
+        stalled_limit = _number(thresholds.get('stalledEventLoopDelayMs'), 0)
+        self._hero.text = _color(_status_color(status), status_text + transition_text)
+        self._hero_meta.text = 'Current lag %s  |  Event-loop delay %s' % (
+            _format_ms(current.get('currentLagMs')),
+            _format_ms(current.get('eventLoopDelayMs')))
+        self._gauge.width = min(1.0, event_loop_delay / stalled_limit) if stalled_limit > 0 else 0
+        self._gauge.color = {
+            'healthy': (0.32, 0.84, 0.83, 1),
+            'degraded': (1, 0.68, 0.31, 1),
+            'stalled': (1, 0.32, 0.36, 1),
+            'transition': (0.32, 0.7, 1, 1),
+        }.get(status, (0.55, 0.62, 0.65, 1))
+        self._summary.text = '%s\n%s' % (
+            _color(_COLOR_LABEL, 'Systems loaded: %s | Ticking: %s | Active sessions: %s' % (
+                _format_count(current.get('sceneCount')),
+                _format_count(current.get('tickedSceneCount')),
+                _format_count(current.get('sessions')),
+            )),
+            _color(_COLOR_VALUE, 'Tick duration: %s | Tick lateness: %s' % (
+                _format_ms(current.get('tickDurationMs')),
+                _format_ms(current.get('tickLatenessMs')),
+            )),
         )
-        self._summary.SetText(
-            '%s %s\n%s %s\n%s\n%s' % (
-                _color(_COLOR_LABEL, 'Current status:'),
-                _color(_status_color(status), status_text + transition_text),
-                _color(_COLOR_LABEL, 'Current lag:'),
-                _color(_COLOR_VALUE, _format_ms(current.get('currentLagMs'))),
-                _color(_COLOR_LABEL, runtime_text),
-                _color(_COLOR_LABEL, 'Systems loaded: %s | Ticking: %s | Active sessions: %s' % (
-                    _format_count(current.get('sceneCount')),
-                    _format_count(current.get('tickedSceneCount')),
-                    _format_count(current.get('sessions')),
-                )),
-            )
-        )
-        self._performance.SetText(
+        self._performance.text = (
             '%s\n%s\n%s\n%s\n%s\n%s' % (
                 _color(_COLOR_LABEL, 'Peak lag:'),
                 _color(_COLOR_VALUE, _format_ms(performance.get('peakLagMs'))),
@@ -273,7 +246,14 @@ class ServerHealthMonitorWindow(Window):
                 )),
             )
         )
-        self._heartbeat.SetText(
+        self._performance.text += '\n%s\n%s' % (
+            _color(_COLOR_LABEL, 'CPU / memory RSS:'),
+            _color(_COLOR_VALUE, '%s%% / %s MB' % (
+                _format_count(current.get('cpuPercent')),
+                _format_count(current.get('memoryRssMb')),
+            )),
+        )
+        self._heartbeat.text = (
             '%s\n%s\n%s' % (
                 _color(_COLOR_LABEL, 'Time since last healthy heartbeat:'),
                 _color(_COLOR_VALUE, _format_duration(heartbeat.get('timeSinceHealthyMs'))),
@@ -286,38 +266,33 @@ class ServerHealthMonitorWindow(Window):
 
         history = state.get('history') or []
         if not history:
-            self._history.SetText(_color(_COLOR_MUTED, 'Waiting for health samples...'))
-            return
-        maximum_lag = max([_number(entry.get('currentLagMs', 0)) for entry in history] or [0])
-        lines = [
-            _color(_COLOR_LABEL, 'Recent health history (lag bars):'),
-            _color(_COLOR_MUTED, 'Each row is a live sample. Incidents are logged server-side.'),
-        ]
-        for entry in history[-30:]:
-            entry_status = str(entry.get('status', 'healthy')).lower()
-            timestamp = str(entry.get('timestamp', ''))
-            if 'T' in timestamp:
-                timestamp = timestamp.split('T', 1)[1].split('.', 1)[0]
-            line = '%s %s [%s] %s loop | tick %s' % (
-                timestamp,
-                entry_status[:1].upper(),
-                _bar(entry.get('currentLagMs', 0), maximum_lag),
-                _format_ms(entry.get('eventLoopDelayMs')),
-                _format_ms(entry.get('tickDurationMs')),
-            )
-            lines.append(_color(_status_color(entry_status), line))
-        self._history.SetText('\n'.join(lines))
+            self._history.text = _color(_COLOR_MUTED, 'Waiting for health samples...')
+        else:
+            maximum_lag = max([_number(entry.get('currentLagMs', 0)) for entry in history] or [0])
+            lines = [_color(_COLOR_MUTED, 'Latest %s samples  |  bars show relative current lag' % min(30, len(history)))]
+            for entry in history[-30:]:
+                entry_status = str(entry.get('status', 'healthy')).lower()
+                timestamp = str(entry.get('timestamp', ''))
+                if 'T' in timestamp:
+                    timestamp = timestamp.split('T', 1)[1].split('.', 1)[0]
+                line = '%s  %s  loop %s  |  tick %s' % (
+                    timestamp,
+                    _bar(entry.get('currentLagMs', 0), maximum_lag, width=12),
+                    _format_ms(entry.get('eventLoopDelayMs')),
+                    _format_ms(entry.get('tickDurationMs')),
+                )
+                lines.append(_color(_status_color(entry_status), line))
+            self._history.text = '\n'.join(lines)
 
     def _render_scene_diagnostics(self, state):
         current = state.get('current') or {}
         scenes = current.get('sceneDiagnostics') or []
         lines = [
-            _color(_COLOR_LABEL, 'Scene Diagnostics'),
             _color(_COLOR_MUTED, 'GM-only live counts from loaded solar-system scenes.'),
         ]
         if not scenes:
             lines.append(_color(_COLOR_MUTED, 'No loaded scene diagnostics are available.'))
-            self._scene_diagnostics.SetText('\n'.join(lines))
+            self._scene_diagnostics.text = '\n'.join(lines)
             return
         lines.append(_color(_COLOR_LABEL, 'Loaded scenes: %s' % len(scenes)))
         for scene in scenes:
@@ -341,7 +316,7 @@ class ServerHealthMonitorWindow(Window):
                 _format_count(scene.get('wreckCount')),
                 _format_count(scene.get('containerCount')),
             )))
-        self._scene_diagnostics.SetText('\n'.join(lines))
+        self._scene_diagnostics.text = '\n'.join(lines)
 
     def Close(self, *args, **kwargs):
         global _window

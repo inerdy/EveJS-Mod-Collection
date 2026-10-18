@@ -61,6 +61,7 @@ function normalizeContract(raw = {}) {
       ? null
       : Number(raw.lastStatus),
     lastEvent: String(raw.lastEvent || ""),
+    cargoKind: raw.cargoKind === "ships" ? "ships" : "minerals",
     originStationID: positive(raw.originStationID, 0),
     destinationStationID: positive(raw.destinationStationID, 0),
     typeID: positive(raw.typeID, 0),

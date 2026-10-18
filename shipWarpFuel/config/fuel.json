@@ -8,9 +8,22 @@
     {"typeID": 17887, "name": "Oxygen Isotopes", "burnMultiplier": 1.25}
   ],
   "fuelCapacityUnits": 1000,
+  "fuelCapacityUnitsByClass": {
+    "capsule": 0,
+    "frigate": 1000,
+    "corvette": 1000,
+    "shuttle": 1000,
+    "destroyer": 1500,
+    "cruiser": 2500,
+    "battlecruiser": 3000,
+    "battleship": 4000,
+    "industrialTransport": 5000,
+    "capitalFreighter": 8000,
+    "fallback": 1000
+  },
   "fuelUnitsPerAU": 1,
   "fuelUnitsPerAUByClass": {
-    "capsule": 0.5,
+    "capsule": 0,
     "frigate": 0.5,
     "corvette": 0.5,
     "shuttle": 0.5,
@@ -24,7 +37,7 @@
   },
   "minimumWarpFuel": 1,
   "initialFillActiveShips": true,
-  "emergencyFuelUnits": 25,
+  "emergencyFuelPercent": 35,
   "emergencyFeeISK": 1000000,
   "emergencyCooldownSeconds": 900,
   "serviceShipTypeID": 648,

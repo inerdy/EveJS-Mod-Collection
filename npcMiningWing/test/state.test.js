@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const {
   clearCollectionTripRetry,
+  completeCollectionTripDock,
   deferCollectionTrip,
   markCollectionUnavailableStates,
   miningHandoffIsReady,
@@ -122,6 +123,30 @@ test("collection-trip retries are durable and reset after progress", () => {
     readyAtMs: 14_000,
   });
   assert.equal(clearCollectionTripRetry(trip), false);
+});
+
+test("collection trips advance from station docking to the leader system", () => {
+  const trip = {
+    active: true,
+    phase: "outbound",
+    currentSystemID: 30,
+    targetSystemID: 30,
+    failureCount: 2,
+    lastError: "NPC_WING_COLLECTION_DOCK_PENDING",
+    readyAtMs: 0,
+  };
+
+  assert.equal(completeCollectionTripDock(trip, 30, 40, 10_000, 4_000), true);
+  assert.deepEqual(trip, {
+    active: true,
+    phase: "returning",
+    currentSystemID: 30,
+    targetSystemID: 40,
+    failureCount: 0,
+    lastError: "",
+    readyAtMs: 14_000,
+  });
+  assert.equal(completeCollectionTripDock(null, 30, 40, 10_000, 4_000), false);
 });
 
 test("mining cargo handoff honors its retry deadline", () => {

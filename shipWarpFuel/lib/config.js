@@ -21,7 +21,7 @@ const FUEL_CLASS_KEYS = Object.freeze([
 ]);
 
 const DEFAULT_FUEL_RATES = Object.freeze({
-  capsule: 0.5,
+  capsule: 0,
   frigate: 0.5,
   corvette: 0.5,
   shuttle: 0.5,
@@ -32,6 +32,20 @@ const DEFAULT_FUEL_RATES = Object.freeze({
   industrialTransport: 2.5,
   capitalFreighter: 4,
   fallback: 0.5,
+});
+
+const DEFAULT_FUEL_CAPACITIES = Object.freeze({
+  capsule: 0,
+  frigate: 1000,
+  corvette: 1000,
+  shuttle: 1000,
+  destroyer: 1500,
+  cruiser: 2500,
+  battlecruiser: 3000,
+  battleship: 4000,
+  industrialTransport: 5000,
+  capitalFreighter: 8000,
+  fallback: 1000,
 });
 
 const DEFAULT_FUEL_TYPES = Object.freeze([
@@ -46,11 +60,12 @@ const DEFAULT_CONFIG = Object.freeze({
   fuelTypeID: 17887,
   fuelTypes: DEFAULT_FUEL_TYPES,
   fuelCapacityUnits: 1000,
+  fuelCapacityUnitsByClass: DEFAULT_FUEL_CAPACITIES,
   fuelUnitsPerAU: 1,
   fuelUnitsPerAUByClass: DEFAULT_FUEL_RATES,
   minimumWarpFuel: 1,
   initialFillActiveShips: true,
-  emergencyFuelUnits: 25,
+  emergencyFuelPercent: 35,
   emergencyFeeISK: 1000000,
   emergencyCooldownSeconds: 900,
   serviceShipTypeID: 648,
@@ -99,6 +114,10 @@ function normalizeConfig(value = {}) {
     typeof source.fuelUnitsPerAUByClass === "object"
     ? source.fuelUnitsPerAUByClass
     : {};
+  const sourceCapacities = source.fuelCapacityUnitsByClass &&
+    typeof source.fuelCapacityUnitsByClass === "object"
+    ? source.fuelCapacityUnitsByClass
+    : {};
   const fallbackRate = Math.max(
     0.000001,
     number(source.fuelUnitsPerAU, DEFAULT_CONFIG.fuelUnitsPerAU),
@@ -111,11 +130,33 @@ function normalizeConfig(value = {}) {
     source,
     "fuelUnitsPerAU",
   );
+  const hasClassCapacities = Boolean(
+    source.fuelCapacityUnitsByClass &&
+    typeof source.fuelCapacityUnitsByClass === "object",
+  );
   const fuelTypeID = integer(source.fuelTypeID, DEFAULT_CONFIG.fuelTypeID, 1, 1000000000);
   const fuelTypes = normalizeFuelTypes(source.fuelTypes, DEFAULT_FUEL_TYPES);
   const selectedFuelType = fuelTypes.find((entry) => entry.typeID === fuelTypeID) || fuelTypes[0];
+  const fuelCapacityUnits = integer(
+    source.fuelCapacityUnits,
+    DEFAULT_CONFIG.fuelCapacityUnits,
+    1000,
+    1000000000,
+  );
+  const fuelCapacityUnitsByClass = {};
   const fuelUnitsPerAUByClass = {};
   for (const key of FUEL_CLASS_KEYS) {
+    if (key === "capsule") {
+      fuelCapacityUnitsByClass[key] = 0;
+      fuelUnitsPerAUByClass[key] = 0;
+      continue;
+    }
+    fuelCapacityUnitsByClass[key] = integer(
+      sourceCapacities[key],
+      hasClassCapacities ? DEFAULT_FUEL_CAPACITIES[key] : fuelCapacityUnits,
+      1000,
+      1000000000,
+    );
     fuelUnitsPerAUByClass[key] = Math.max(
       0.000001,
       number(
@@ -130,12 +171,13 @@ function normalizeConfig(value = {}) {
     enabled: source.enabled !== false,
     fuelTypeID: selectedFuelType.typeID,
     fuelTypes,
-    fuelCapacityUnits: integer(source.fuelCapacityUnits, DEFAULT_CONFIG.fuelCapacityUnits, 1, 1000000000),
+    fuelCapacityUnits,
+    fuelCapacityUnitsByClass: Object.freeze(fuelCapacityUnitsByClass),
     fuelUnitsPerAU: fallbackRate,
     fuelUnitsPerAUByClass: Object.freeze(fuelUnitsPerAUByClass),
     minimumWarpFuel: integer(source.minimumWarpFuel, DEFAULT_CONFIG.minimumWarpFuel, 1, 1000000000),
     initialFillActiveShips: source.initialFillActiveShips !== false,
-    emergencyFuelUnits: integer(source.emergencyFuelUnits, DEFAULT_CONFIG.emergencyFuelUnits, 1, 1000000000),
+    emergencyFuelPercent: integer(source.emergencyFuelPercent, DEFAULT_CONFIG.emergencyFuelPercent, 1, 100),
     emergencyFeeISK: Math.max(0, Math.round(number(source.emergencyFeeISK, DEFAULT_CONFIG.emergencyFeeISK) * 100) / 100),
     emergencyCooldownSeconds: integer(source.emergencyCooldownSeconds, DEFAULT_CONFIG.emergencyCooldownSeconds, 0, 864000),
     serviceShipTypeID: integer(source.serviceShipTypeID, DEFAULT_CONFIG.serviceShipTypeID, 1, 1000000000),
@@ -170,6 +212,7 @@ function loadConfig(configPath = CONFIG_PATH) {
 module.exports = {
   CONFIG_PATH,
   DEFAULT_CONFIG,
+  DEFAULT_FUEL_CAPACITIES,
   DEFAULT_FUEL_RATES,
   DEFAULT_FUEL_TYPES,
   FUEL_CLASS_KEYS,

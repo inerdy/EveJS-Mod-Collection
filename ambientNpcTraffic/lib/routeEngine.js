@@ -139,6 +139,29 @@ function buildRoutePlan({systemID, staticEntities, seed, crossSystemChance = 0.3
   };
 }
 
+function buildInlineApproachPoint(originPosition, destinationPosition, distanceFromDestination) {
+  const destination = cloneVector(destinationPosition);
+  const origin = cloneVector(originPosition, destination);
+  const dx = origin.x - destination.x;
+  const dy = origin.y - destination.y;
+  const dz = origin.z - destination.z;
+  const magnitude = Math.hypot(dx, dy, dz);
+  const distance = Math.max(0, finite(distanceFromDestination, 0));
+  if (magnitude <= 1) {
+    return {
+      x: destination.x + distance,
+      y: destination.y,
+      z: destination.z,
+    };
+  }
+  const scale = distance / magnitude;
+  return {
+    x: destination.x + (dx * scale),
+    y: destination.y + (dy * scale),
+    z: destination.z + (dz * scale),
+  };
+}
+
 function buildApproachPoint(anchor, seed, distanceMeters) {
   const origin = cloneVector(anchor && anchor.position);
   const angle = unitFraction(`${seed}:angle`) * Math.PI * 2;
@@ -152,6 +175,82 @@ function buildApproachPoint(anchor, seed, distanceMeters) {
   };
 }
 
+const GATE_JUMP_LANDING_MIN_METERS = 1000;
+const GATE_JUMP_LANDING_MAX_METERS = 2000;
+const WARP_EXIT_SCATTER_MIN_METERS = 1000;
+const WARP_EXIT_SCATTER_MAX_METERS = 2000;
+
+function clampMeters(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function resolveExitSurfaceMeters(
+  chosenSurfaceMeters,
+  minSurfaceMeters,
+  maxSurfaceMeters,
+  seed,
+) {
+  const minSurface = Math.max(0, finite(minSurfaceMeters, 0));
+  const maxSurface = Math.max(minSurface, finite(maxSurfaceMeters, minSurface));
+  const chosen = clampMeters(finite(chosenSurfaceMeters, maxSurface), minSurface, maxSurface);
+  const scatter = WARP_EXIT_SCATTER_MIN_METERS + (
+    unitFraction(`${seed}:exit-scatter`) *
+    (WARP_EXIT_SCATTER_MAX_METERS - WARP_EXIT_SCATTER_MIN_METERS)
+  );
+  const fitting = [chosen - scatter, chosen + scatter].filter((value) => (
+    value >= minSurface && value <= maxSurface
+  ));
+  if (fitting.length === 1) {
+    return fitting[0];
+  }
+  if (fitting.length > 1) {
+    return fitting[unitFraction(`${seed}:exit-side`) < 0.5 ? 0 : 1];
+  }
+  const span = maxSurface - minSurface;
+  if (span <= 0) {
+    return minSurface;
+  }
+  return minSurface + (unitFraction(`${seed}:exit-window`) * span);
+}
+
+function buildInlineGateExitPoint(
+  originPosition,
+  gatePosition,
+  gateRadius = 0,
+  {
+    chosenSurfaceMeters = 0,
+    minSurfaceMeters = 0,
+    maxSurfaceMeters = 0,
+    seed = "",
+  } = {},
+) {
+  const surfaceMeters = resolveExitSurfaceMeters(
+    chosenSurfaceMeters,
+    minSurfaceMeters,
+    maxSurfaceMeters,
+    seed,
+  );
+  return buildInlineApproachPoint(
+    originPosition,
+    gatePosition,
+    Math.max(0, finite(gateRadius, 0)) + surfaceMeters,
+  );
+}
+
+function buildGateJumpLandingPoint(anchor, seed, gateRadius = 0, originPosition = null) {
+  return buildInlineGateExitPoint(
+    originPosition,
+    anchor && anchor.position,
+    gateRadius,
+    {
+      chosenSurfaceMeters: (GATE_JUMP_LANDING_MIN_METERS + GATE_JUMP_LANDING_MAX_METERS) / 2,
+      minSurfaceMeters: GATE_JUMP_LANDING_MIN_METERS,
+      maxSurfaceMeters: GATE_JUMP_LANDING_MAX_METERS,
+      seed: `${seed}:jump-exit`,
+    },
+  );
+}
+
 function distanceSquared(left, right) {
   const a = cloneVector(left);
   const b = cloneVector(right);
@@ -161,13 +260,137 @@ function distanceSquared(left, right) {
   return (dx * dx) + (dy * dy) + (dz * dz);
 }
 
+function isHaulerProfile(profileID) {
+  return String(profileID || "").toLowerCase().includes("hauler");
+}
+
+function chooseGateLanding(seed) {
+  return unitFraction(`${seed}:gate-landing`) < 0.5 ? "approach" : "jump";
+}
+
+function canStartWarp(from, to, minimumMeters = 150000) {
+  const minimum = Math.max(0, finite(minimumMeters, 150000));
+  return distanceSquared(from, to) >= (minimum * minimum);
+}
+
+function isWithinGateJumpRange(position, gatePosition, gateRadius, jumpRangeMeters = 2500) {
+  const range = Math.max(0, finite(jumpRangeMeters, 2500));
+  const centerDistance = Math.sqrt(distanceSquared(position, gatePosition));
+  const surfaceDistance = Math.max(0, centerDistance - Math.max(0, finite(gateRadius, 0)));
+  return surfaceDistance <= range;
+}
+
+function vectorMagnitude(value) {
+  const vector = cloneVector(value);
+  return Math.hypot(vector.x, vector.y, vector.z);
+}
+
+function unitDot(left, right) {
+  const leftMagnitude = vectorMagnitude(left);
+  const rightMagnitude = vectorMagnitude(right);
+  if (leftMagnitude <= 0 || rightMagnitude <= 0) {
+    return 0;
+  }
+  const a = cloneVector(left);
+  const b = cloneVector(right);
+  return (
+    (a.x * b.x) +
+    (a.y * b.y) +
+    (a.z * b.z)
+  ) / (leftMagnitude * rightMagnitude);
+}
+
+const WARP_SCRAMBLER_FAMILY = "warpScrambler";
+const WARP_DISRUPTOR_FAMILY = "warpDisruptor";
+
+function listActiveWarpPointFamilies(incomingEffects) {
+  const families = [];
+  if (!incomingEffects || typeof incomingEffects.values !== "function") {
+    return families;
+  }
+  for (const record of incomingEffects.values()) {
+    if (!record || !record.family) {
+      continue;
+    }
+    const rangeMultiplier = Number(record.rangeMultiplier);
+    if (!Number.isFinite(rangeMultiplier) || rangeMultiplier <= 0) {
+      continue;
+    }
+    const strength = Number(record.scrambleStrength);
+    if (Number.isFinite(strength) && Math.abs(strength) <= 1e-6) {
+      continue;
+    }
+    families.push(String(record.family));
+  }
+  return families;
+}
+
+function shipHasWarpCoreStabilizer(seed) {
+  return unitFraction(`${seed}:warp-stab`) < 0.5;
+}
+
+function warpDepartureDenial({
+  families = [],
+  microwarpdriveBlocked = false,
+  inBubble = false,
+  hasWarpCoreStabilizer = false,
+} = {}) {
+  if (inBubble) {
+    return "bubble";
+  }
+  const active = Array.isArray(families) ? families : [];
+  if (microwarpdriveBlocked === true || active.includes(WARP_SCRAMBLER_FAMILY)) {
+    return "scram";
+  }
+  if (active.includes(WARP_DISRUPTOR_FAMILY) && hasWarpCoreStabilizer !== true) {
+    return "disrupt";
+  }
+  return null;
+}
+
+function isWarpEntryReady(entity, targetPoint, minimumSpeedFraction = 0.75) {
+  if (!entity || !entity.position || !targetPoint) {
+    return false;
+  }
+  const maxVelocity = Math.max(0, finite(entity.maxVelocity, 0));
+  const velocity = cloneVector(entity.velocity);
+  const speed = vectorMagnitude(velocity);
+  if (maxVelocity <= 0 || (speed / maxVelocity) <= Math.max(0, finite(minimumSpeedFraction, 0.75))) {
+    return false;
+  }
+  const toTarget = {
+    x: finite(targetPoint.x, 0) - finite(entity.position.x, 0),
+    y: finite(targetPoint.y, 0) - finite(entity.position.y, 0),
+    z: finite(targetPoint.z, 0) - finite(entity.position.z, 0),
+  };
+  return unitDot(velocity, toTarget) >= 0.99;
+}
+
 module.exports = {
+  GATE_JUMP_LANDING_MAX_METERS,
+  GATE_JUMP_LANDING_MIN_METERS,
+  WARP_DISRUPTOR_FAMILY,
+  WARP_EXIT_SCATTER_MAX_METERS,
+  WARP_EXIT_SCATTER_MIN_METERS,
+  WARP_SCRAMBLER_FAMILY,
   buildApproachPoint,
+  buildGateJumpLandingPoint,
+  buildInlineApproachPoint,
+  buildInlineGateExitPoint,
+  resolveExitSurfaceMeters,
   buildRoutePlan,
+  canStartWarp,
   choose,
+  chooseGateLanding,
   distanceSquared,
   hashSeed,
+  isHaulerProfile,
+  isWarpEntryReady,
+  isWithinGateJumpRange,
+  listActiveWarpPointFamilies,
   listAnchors,
   normalizeAnchor,
+  shipHasWarpCoreStabilizer,
   unitFraction,
+  warpDepartureDenial,
 };

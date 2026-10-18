@@ -1,7 +1,7 @@
 "use strict";
 
 const fsPath = require("node:path");
-const REPO_ROOT = fsPath.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = fsPath.resolve(process.env.EVEJS_ROOT || fsPath.resolve(__dirname, "..", "..", ".."));
 const serverPath = (...segments) => fsPath.join(REPO_ROOT, "server", "src", ...segments);
 const BaseService = require(serverPath("services", "baseService"));
 const database = require(serverPath("gameStore"));

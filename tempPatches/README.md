@@ -1,6 +1,6 @@
 # Temporary Patches
 
-[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](#requirements)
+[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](#requirements)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 
 tempPatches is a native-only EveJS loader mod for small server fixes. It keeps
@@ -31,7 +31,7 @@ disable this temporary bug-fix package without changing anomaly respawn timers.
 
 ## Requirements
 
-- Native EveJS 0.12.9
+- Native EveJS 261018.1
 - EveJS Launcher 1.0.69 or newer
 
 This mod is native-only. Docker deployments are not supported.
@@ -43,7 +43,7 @@ This mod is native-only. Docker deployments are not supported.
 3. Enable **Temporary Patches** in the EveJS Launcher.
 4. Restart the **Game server**.
 
-The mod is intended for EveJS 0.12.9. It does not change dungeon content packs
+The mod is intended for EveJS 261018.1. It does not change dungeon content packs
 and does not edit EveJS core files.
 
 ## Configuration

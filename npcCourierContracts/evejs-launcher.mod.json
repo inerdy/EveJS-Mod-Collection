@@ -2,7 +2,7 @@
   "schemaVersion": 3,
   "id": "npccouriercontracts",
   "displayName": "NPC Courier Contracts",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Generates persistent NPC courier contracts from major trade hubs and active stations.",
   "kind": "loader",
   "supportedBackends": [
@@ -14,7 +14,7 @@
   "restart": "game_server",
   "compatibility": {
     "evejsVersions": [
-      "0.12.9"
+      "261018.1"
     ]
   },
   "clientMenu": {

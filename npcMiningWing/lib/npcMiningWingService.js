@@ -21,6 +21,7 @@ const { unwrapMarshalValue } = require(serverPath("services", "_shared", "servic
 const log = require(serverPath("utils", "logger"));
 const {
   clearCollectionTripRetry,
+  completeCollectionTripDock,
   deferCollectionTrip,
   markCollectionUnavailableStates,
   miningHandoffIsReady,
@@ -7372,6 +7373,7 @@ class NpcMiningWingService extends BaseService {
         characterID,
         targetStationSystemID,
       );
+      const leaderSession = getSessionRegistry().findSessionByCharacterID(characterID);
       if (Number(ship.flagID) === itemStore.ITEM_FLAGS.HANGAR) {
         this._depositDockedMiningCargo(
           activeSession,
@@ -7380,14 +7382,62 @@ class NpcMiningWingService extends BaseService {
           stationID,
           "collection-trip",
         );
-        trip.phase = "returning";
-        trip.currentSystemID = targetStationSystemID;
-        trip.targetSystemID = currentSpaceSystemID(activeSession)
-          ? currentSpaceSystemID(activeSession)
-          : 0;
-        trip.readyAtMs = now + GATE_TRANSIT_MS;
+        completeCollectionTripDock(
+          trip,
+          targetStationSystemID,
+          currentSpaceSystemID(leaderSession) || currentSpaceSystemID(activeSession),
+          now,
+          GATE_TRANSIT_MS,
+        );
         character.revision = positive(character.revision) + 1;
         writeState(this._getState());
+        return true;
+      }
+      if (!activeSession) {
+        if (!this._prepareWingShipForDock(null, characterID, ship, scene)) {
+          return defer("NPC_WING_COLLECTION_DOCK_PENDING");
+        }
+        if (!this._removeShipFromSystemScene(runtime, targetStationSystemID, collectionShipID)) {
+          return defer("NPC_WING_COLLECTION_DOCK_PENDING");
+        }
+        const dockResult = itemStore.dockShipToLocation(collectionShipID, stationID);
+        if (!dockResult || dockResult.success !== true) {
+          return defer("NPC_WING_COLLECTION_DOCK_PENDING");
+        }
+        this._depositDockedMiningCargo(
+          null,
+          characterID,
+          collectionShipID,
+          stationID,
+          "collection-trip-remote-arrival",
+        );
+        this._syncDockedShipToSession(
+          null,
+          characterID,
+          collectionShipID,
+          dockResult,
+          "collection-trip-remote-arrival",
+        );
+        completeCollectionTripDock(
+          trip,
+          targetStationSystemID,
+          currentSpaceSystemID(leaderSession),
+          now,
+          GATE_TRANSIT_MS,
+        );
+        character.revision = positive(character.revision) + 1;
+        writeState(this._getState());
+        this._sendWingChat(
+          null,
+          characterID,
+          collectionShipID,
+          "Collection ship docked and unloaded its mining cargo remotely. It is returning to the wing.",
+        );
+        log.info(
+          `[NPCMiningWing] collection ship remotely docked and unloaded ` +
+            `char=${characterID} ship=${collectionShipID} station=${stationID} ` +
+            `returnSystem=${positive(trip.targetSystemID)}`,
+        );
         return true;
       }
       if (!scene) {
@@ -7444,13 +7494,13 @@ class NpcMiningWingService extends BaseService {
         dockResult,
         "collection-trip",
       );
-      trip.phase = "returning";
-      trip.currentSystemID = targetStationSystemID;
-      trip.targetSystemID = currentSpaceSystemID(activeSession)
-        ? currentSpaceSystemID(activeSession)
-        : 0;
-      trip.readyAtMs = now + GATE_TRANSIT_MS;
-      clearCollectionTripRetry(trip);
+      completeCollectionTripDock(
+        trip,
+        targetStationSystemID,
+        currentSpaceSystemID(leaderSession) || currentSpaceSystemID(activeSession),
+        now,
+        GATE_TRANSIT_MS,
+      );
       character.revision = positive(character.revision) + 1;
       writeState(this._getState());
       this._sendWingChat(

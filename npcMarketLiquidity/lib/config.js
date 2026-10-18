@@ -5,7 +5,7 @@ const path = require("node:path");
 
 const CONFIG_PATH = path.join(__dirname, "..", "config", "liquidity.json");
 const LOCAL_CONFIG_PATH = path.join(__dirname, "..", "config", "liquidity.local.json");
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const REPO_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", ".."));
 const DEFAULT_PRICE_MANIFEST_PATH = path.join(__dirname, "..", "data", "price-manifest.json");
 const DEFAULT_HUBS = [60003760, 60008494, 60011866, 60004588, 60005686];
 const DEFAULT_ORE_TYPE_IDS = Object.freeze([

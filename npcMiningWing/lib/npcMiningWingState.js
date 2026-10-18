@@ -95,6 +95,25 @@ function clearCollectionTripRetry(trip) {
   return changed;
 }
 
+function completeCollectionTripDock(
+  trip,
+  stationSystemID,
+  returnSystemID,
+  now = Date.now(),
+  transitMs = 4_000,
+) {
+  if (!trip || typeof trip !== "object") {
+    return false;
+  }
+  trip.phase = "returning";
+  trip.currentSystemID = positive(stationSystemID);
+  trip.targetSystemID = positive(returnSystemID);
+  const timestamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  trip.readyAtMs = timestamp + Math.max(1, Number(transitMs) || 4_000);
+  clearCollectionTripRetry(trip);
+  return true;
+}
+
 function nextRuntimeFailure(previous, error, now = Date.now()) {
   const previousFailure = previous && typeof previous === "object" ? previous : {};
   const count = Math.max(0, Number(previousFailure.count) || 0) + 1;
@@ -138,6 +157,7 @@ function miningHandoffIsReady(miningState, now = Date.now()) {
 
 module.exports = Object.freeze({
   clearCollectionTripRetry,
+  completeCollectionTripDock,
   deferCollectionTrip,
   markCollectionUnavailableStates,
   miningHandoffIsReady,

@@ -26,7 +26,15 @@ function calculateCargoTotals(items) {
   }), {volumeM3: 0, referenceValueISK: 0});
 }
 
-function calculateReward({jumps, volumeM3, security, config}) {
+function calculateReward({
+  jumps,
+  volumeM3,
+  security,
+  config,
+  rewardMultiplier = 1,
+  minimumISK,
+  maximumISK,
+}) {
   const rewardConfig = config.reward;
   const className = securityClass(security);
   const multiplier = finite(
@@ -36,10 +44,15 @@ function calculateReward({jumps, volumeM3, security, config}) {
   const base = finite(rewardConfig.baseISK, 0) +
     Math.max(0, Math.trunc(finite(jumps, 0))) * finite(rewardConfig.perJumpISK, 0) +
     Math.max(0, finite(volumeM3, 0)) * finite(rewardConfig.perVolumeM3ISK, 0);
+  const minimum = Math.max(0, finite(minimumISK, finite(rewardConfig.minimumISK, 0)));
+  const maximum = Math.max(
+    minimum,
+    finite(maximumISK, finite(rewardConfig.maximumISK, 0)),
+  );
   return Math.round(clamp(
-    base * Math.max(0, multiplier),
-    finite(rewardConfig.minimumISK, 0),
-    Math.max(finite(rewardConfig.minimumISK, 0), finite(rewardConfig.maximumISK, 0)),
+    base * Math.max(0, multiplier) * Math.max(0, finite(rewardMultiplier, 1)),
+    minimum,
+    maximum,
   ));
 }
 

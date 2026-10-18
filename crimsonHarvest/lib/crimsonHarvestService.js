@@ -1,10 +1,9 @@
 "use strict";
 
 const path = require("node:path");
-const BaseService = require(path.join(
-  __dirname,
-  "../../../server/src/services/baseService",
-));
+const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", ".."));
+const serverPath = (...segments) => path.join(EVEJS_ROOT, "server", "src", ...segments);
+const BaseService = require(serverPath("services", "baseService"));
 
 const EVENT_ID = "crimson_harvest";
 const EVENT_SITE_ORIGIN = "crimson_harvest";
@@ -165,34 +164,13 @@ function resolveSystemID(session, attached, options = {}) {
 
 function getRuntimeDependencies() {
   return {
-    dungeonAuthority: require(path.join(
-      __dirname,
-      "../../../server/src/services/dungeon/dungeonAuthority",
-    )),
-    dungeonRuntime: require(path.join(
-      __dirname,
-      "../../../server/src/services/dungeon/dungeonRuntime",
-    )),
-    dungeonSiteAdapter: require(path.join(
-      __dirname,
-      "../../../server/src/services/dungeon/dungeonSiteAdapter",
-    )),
-    dungeonUniverseRuntime: require(path.join(
-      __dirname,
-      "../../../server/src/services/dungeon/dungeonUniverseRuntime",
-    )),
-    worldData: require(path.join(
-      __dirname,
-      "../../../server/src/space/worldData",
-    )),
-    pochvenPolicy: require(path.join(
-      __dirname,
-      "../../../server/src/space/pochvenPolicy",
-    )),
-    chatHub: require(path.join(
-      __dirname,
-      "../../../server/src/services/chat/chatHub",
-    )),
+    dungeonAuthority: require(serverPath("services", "dungeon", "dungeonAuthority")),
+    dungeonRuntime: require(serverPath("services", "dungeon", "dungeonRuntime")),
+    dungeonSiteAdapter: require(serverPath("services", "dungeon", "dungeonSiteAdapter")),
+    dungeonUniverseRuntime: require(serverPath("services", "dungeon", "dungeonUniverseRuntime")),
+    worldData: require(serverPath("space", "worldData")),
+    pochvenPolicy: require(serverPath("space", "pochvenPolicy")),
+    chatHub: require(serverPath("services", "chat", "chatHub")),
   };
 }
 

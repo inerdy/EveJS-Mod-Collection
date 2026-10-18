@@ -1,7 +1,7 @@
 # NPC Mining Wing
 
 [![License: MIT](https://img.shields.io/github/license/inerdy/NPC-Wing-Mining)](LICENSE)
-[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/inerdy/NPC-Wing-Mining)
+[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/inerdy/NPC-Wing-Mining)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](https://github.com/inerdy/NPC-Wing-Mining)
 [![Last commit](https://img.shields.io/github/last-commit/inerdy/NPC-Wing-Mining)](https://github.com/inerdy/NPC-Wing-Mining/commits/main)
 
@@ -17,6 +17,8 @@ modules, cargo holds, mining holds, drones, and the commanding pilot's skills.
 - Command the wing to follow, hold, mine, recall, or collect cargo.
 - Use fitted mining modules and compatible mining or combat drones.
 - Automatically return to unload when mining holds are full.
+- Complete collection-ship station docking and cargo unloading from saved ship
+  state when the owner is elsewhere, then return the ship to the owner's system.
 - Designate one marked ship as the collection ship so miners unload into it.
 - Automatically send a full collection ship to its saved station, unload its
   mining cargo, and return it to the wing.
@@ -35,7 +37,7 @@ collection ship. The player's active ship is not counted toward that limit.
 
 ## Requirements
 
-- Native EveJS `0.12.9` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
+- Native EveJS `261018.1` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
 
 This mod is native-only. Docker deployments are not supported.
@@ -82,9 +84,11 @@ space scene is available, a newly deployed ship appears at the station undock
 point and travels toward the player, while a recalled ship remains visible
 until it reaches docking range. When no player session has a scene loaded, the
 wing keeps the ship's inventory-backed system and transit state instead of
-creating an empty scene only for animation. The ship is materialized when a
-player enters that system; visual absence in an unloaded scene does not mean
-the ship has already docked.
+creating an empty scene only for animation. Collection trips can dock and unload
+from saved ship state when the owner is elsewhere, then return the ship to the
+owner's current system. Other deployed ships are materialized when a player
+enters that system; their visual absence in an unloaded scene does not mean they
+have already docked.
 
 There is no separate configuration file. The mod stores its state under the
 active EveJS data root at `gameStore/npcMiningWing/state.json`.
@@ -180,7 +184,7 @@ bounded between cycles. A stopped process or blocked event loop cannot emit a
 heartbeat; no logger can guarantee output in those cases.
 
 The loader validates the EveJS version and the native service seams it needs before
-registering the mod. It currently requires EveJS `0.12.9` and the native backend;
+registering the mod. It currently requires EveJS `261018.1` and the native backend;
 unsupported layouts fail with a clear startup error.
 
 From the `Server Mods` directory, run the package checks with:

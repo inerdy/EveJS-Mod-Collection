@@ -30,8 +30,10 @@ const {
   normalizeState,
 } = require(path.join(modRoot, "lib", "state"));
 const serviceClass = require(path.join(modRoot, "lib", "npcCourierContractsService"));
+const {chooseCargoKind} = serviceClass._testing;
 const {buildSnapshot} = require(path.join(modRoot, "lib", "haulerProgression"));
-const serverLogger = require(path.resolve(modRoot, "..", "..", "server", "src", "utils", "logger"));
+const evejsRoot = path.resolve(process.env.EVEJS_ROOT || path.resolve(modRoot, "..", ".."));
+const serverLogger = require(path.join(evejsRoot, "server", "src", "utils", "logger"));
 const loaderSource = fs.readFileSync(path.join(modRoot, "loader.js"), "utf8");
 const clientSource = fs.readFileSync(path.join(modRoot, "client", "menu.py"), "utf8");
 const serviceSource = fs.readFileSync(path.join(modRoot, "lib", "npcCourierContractsService.js"), "utf8");
@@ -72,11 +74,11 @@ assert.deepEqual(packageFiles.sort(), [
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npccouriercontracts");
 assert.equal(manifest.displayName, "NPC Courier Contracts");
-assert.equal(manifest.version, "0.6.6");
+assert.equal(manifest.version, "0.6.7");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["0.12.9"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
 assert.deepEqual(manifest.clientMenu, {
   apiVersion: 1,
   entrypoint: "client/menu.py",
@@ -100,8 +102,8 @@ assert.equal(clientSource.includes('OnRemoteMessage'), false);
 const config = normalizeConfig(rawConfig);
 assert.equal(config.enabled, true);
 assert.equal(config.clearExistingContractsOnce, true);
-assert.equal(config.wipeAllActiveContractsOnce, true);
-assert.equal(config.legacyCleanupVersion, 5);
+assert.equal(config.wipeAllActiveContractsOnce, false);
+assert.equal(config.legacyCleanupVersion, 6);
 assert.equal(config.haulerProgression.maxLevel, 50);
 assert.equal(config.haulerProgression.baseXPPerContract, 100);
 assert.equal(config.haulerProgression.xpPerJump, 10);
@@ -126,6 +128,44 @@ assert.equal(config.cargoCatalog.length, 5);
 assert.equal(config.cargo.referenceVolumeM3, 10000);
 assert.equal(config.cargo.minimumLoadFraction, 0.25);
 assert.equal(config.cargo.maximumLoadFraction, 0.9);
+assert.equal(config.shipCargo.chance, 0.33);
+assert.equal(config.shipCargo.targetVolumeM3, 1000000);
+assert.equal(config.shipCargo.minimumLoadFraction, 0.25);
+assert.equal(config.shipCargo.maximumLoadFraction, 0.9);
+assert.equal(config.shipCargo.rewardMultiplier, 10);
+assert.deepEqual(config.shipCargo.allowedGroupIDs, [25, 26, 463]);
+const invalidShipConfig = normalizeConfig({shipCargo: {
+  chance: 1.5,
+  targetVolumeM3: 0,
+  minimumLoadFraction: 0.8,
+  maximumLoadFraction: 0.2,
+  minimumStackCount: 1,
+  maximumStackCount: 1,
+  minimumQuantity: 4,
+  maximumQuantity: 2,
+  rewardMultiplier: 0,
+  allowedGroupIDs: [0, 463, 463],
+  referenceValueISKByTypeID: {"500001": -1, "500002": 2500, invalid: 50},
+}});
+assert.equal(invalidShipConfig.shipCargo.chance, 1);
+assert.equal(invalidShipConfig.shipCargo.targetVolumeM3, 1);
+assert.equal(invalidShipConfig.shipCargo.minimumLoadFraction, 0.8);
+assert.equal(invalidShipConfig.shipCargo.maximumLoadFraction, 0.8);
+assert.equal(invalidShipConfig.shipCargo.minimumStackCount, 2);
+assert.equal(invalidShipConfig.shipCargo.maximumStackCount, 2);
+assert.equal(invalidShipConfig.shipCargo.minimumQuantity, 4);
+assert.equal(invalidShipConfig.shipCargo.maximumQuantity, 4);
+assert.equal(invalidShipConfig.shipCargo.rewardMultiplier, 0.1);
+assert.deepEqual(invalidShipConfig.shipCargo.allowedGroupIDs, [463]);
+assert.deepEqual(invalidShipConfig.shipCargo.referenceValueISKByTypeID, {"500002": 2500});
+const shipSelections = Array.from({length: 1000}, (_unused, index) => (
+  chooseCargoKind(`frequency-sample-${index}`, config.shipCargo.chance)
+));
+const shipSelectionRate = shipSelections.filter((kind) => kind === "ships").length / shipSelections.length;
+assert.ok(shipSelectionRate > 0.28 && shipSelectionRate < 0.38);
+assert.ok(shipSelections.every((kind, index) => (
+  kind === chooseCargoKind(`frequency-sample-${index}`, config.shipCargo.chance)
+)));
 assert.equal(config.plexReward.minimum, 10);
 assert.equal(config.plexReward.maximum, 20);
 assert.ok(config.cargoCatalog.every((entry) => entry.maximumQuantity >= entry.minimumQuantity));
@@ -264,6 +304,24 @@ const longReward = calculateReward({
 assert.ok(longReward > shortReward);
 assert.equal(calculateReward({jumps: 34, volumeM3: 0, security: 0.9, config}), 15325000);
 assert.ok(calculateReward({jumps: 3, volumeM3: 100, security: -0.1, config}) > shortReward);
+assert.equal(calculateReward({
+  jumps: 34,
+  volumeM3: 0,
+  security: 0.9,
+  config,
+  rewardMultiplier: 10,
+  minimumISK: config.reward.minimumISK * 10,
+  maximumISK: config.reward.maximumISK * 10,
+}), 153250000);
+assert.equal(calculateReward({
+  jumps: 200,
+  volumeM3: 1000000,
+  security: 0.9,
+  config,
+  rewardMultiplier: 10,
+  minimumISK: config.reward.minimumISK * 10,
+  maximumISK: config.reward.maximumISK * 10,
+}), 500000000);
 assert.equal(calculateCollateral(100000, config), 125000);
 assert.equal(calculateDeliveryDays(1, config), 2);
 
@@ -277,12 +335,18 @@ const normalizedState = normalizeState({
       originStationID: 60000001,
       destinationStationID: 60000002,
       lastEvent: "created",
+      cargoKind: "ships",
+      items: [{typeID: 500001, quantity: 2, itemID: 70000001}],
     },
   },
 });
 assert.equal(normalizedState.sequence, 7);
 assert.deepEqual(normalizedState.promotedStationIDs, [60000003]);
 assert.equal(normalizedState.contracts.first.lastEvent, "created");
+assert.equal(normalizedState.contracts.first.cargoKind, "ships");
+assert.deepEqual(normalizedState.contracts.first.items, [
+  {typeID: 500001, quantity: 2, itemID: 70000001},
+]);
 assert.equal(normalizedState.treasury.replenishmentCount, 0);
 assert.equal(normalizedState.maintenance.existingContractsCleared, false);
 assert.equal(normalizedState.schemaVersion, 2);
@@ -354,6 +418,7 @@ async function validateServiceLifecycle() {
       minimumBalanceISK: 0,
     },
     cargo: {minimumStackCount: 2, maximumStackCount: 2},
+    shipCargo: {chance: 0},
     cargoCatalog: [34, 35].map((typeID) => ({
       typeID,
       minimumQuantity: 10000,
@@ -399,6 +464,7 @@ async function validateServiceLifecycle() {
           status: 0,
           issuerCorpID: fakeConfig.issuer.corporationID,
           title: info.title,
+          description: info.description,
           startStationID: info.startStationID,
           endStationID: info.destinationID,
           reward: info.reward,
@@ -477,6 +543,10 @@ async function validateServiceLifecycle() {
   try {
     await service.tick(1000000);
     assert.equal(fakeRecords.length, 2);
+    assert.ok(Object.values(savedState.contracts).every((entry) => entry.cargoKind === "minerals"));
+    assert.ok(fakeRecords.every((record) => record.title.includes("mineral cargo stacks")));
+    assert.ok(fakeRecords.every((record) => record.description.includes("One sealed courier package")));
+    assert.ok(fakeRecords.every((record) => record.description.includes("Total cargo volume:")));
     assert.deepEqual(
       fakeRecords.map((record) => [record.startStationID, record.endStationID]),
       [[60000001, 60000002], [60000002, 60000001]],
@@ -514,6 +584,260 @@ async function validateServiceLifecycle() {
     fakeRecords[0].status = 4;
     await service.tick(1003000);
     assert.ok(savedState.stationScores["60000002"] >= fakeConfig.completionScore);
+  } finally {
+    service.stop();
+    serverLogger.info = originalLogger.info;
+    serverLogger.warn = originalLogger.warn;
+    serverLogger.error = originalLogger.error;
+  }
+}
+
+async function validateShipContractGenerationAndRecovery() {
+  const shipTypes = [
+    {typeID: 500001, name: "Test Frigate", groupID: 25, categoryID: 6, published: true, volume: 10, basePrice: 1000000},
+    {typeID: 500002, name: "Test Cruiser", groupID: 26, categoryID: 6, published: true, volume: 20, basePrice: 2000000},
+    {typeID: 500003, name: "Test Mining Barge", groupID: 463, categoryID: 6, published: true, volume: 50, basePrice: 5000000},
+    {typeID: 500004, name: "Excluded Destroyer", groupID: 27, categoryID: 6, published: true, volume: 30, basePrice: 3000000},
+    {typeID: 500005, name: "Unpublished Frigate", groupID: 25, categoryID: 6, published: false, volume: 10, basePrice: 1000000},
+  ];
+  const shipTypesByID = new Map(shipTypes.map((ship) => [ship.typeID, ship]));
+  const shipReferenceValues = {"500001": 1500000, "500002": 2500000, "500003": 5500000};
+  const shipConfig = normalizeConfig({
+    ...rawConfig,
+    enabled: true,
+    clearExistingContractsOnce: false,
+    wipeAllActiveContractsOnce: false,
+    initialDelayMs: 0,
+    tickIntervalMs: 1000,
+    contractsPerOrigin: 1,
+    maxOutstandingContracts: 2,
+    generateReturnContracts: true,
+    maxPromotedOrigins: 0,
+    hubStationIDs: [60000001],
+    issuer: {corporationID: 9000001, characterID: 9000002, walletAccountKey: 1000},
+    shipCargo: {
+      ...rawConfig.shipCargo,
+      chance: 1,
+      targetVolumeM3: 1000,
+      minimumLoadFraction: 0.8,
+      maximumLoadFraction: 0.8,
+      minimumStackCount: 2,
+      maximumStackCount: 2,
+      maximumQuantity: 100,
+      maximumItemVolumeM3: 1000,
+      allowedGroupIDs: [25, 26, 463],
+      referenceValueISKByTypeID: shipReferenceValues,
+    },
+  });
+  const fakeRecords = [];
+  const grantedItems = new Map();
+  const receipts = new Map();
+  const grantCalls = [];
+  let nextItemID = 91000000;
+  let nextContractID = 980001000;
+  let fakeBalance = 50000000000;
+  let savedState = normalizeState({});
+  const itemStore = {
+    ITEM_FLAGS: {HANGAR: 4},
+    getItemMetadata: (typeID) => shipTypesByID.get(typeID) || {typeID, name: "Tritanium", volume: 0.01},
+    getShipMetadata: (typeID) => shipTypesByID.get(typeID) || null,
+    grantItemToOwnerLocationIdempotent: (ownerID, locationID, flagID, typeID, quantity, options = {}) => {
+      const receiptKey = String(options.receiptKey || "");
+      grantCalls.push({receiptKey, singleton: options.singleton, typeID, quantity});
+      if (receipts.has(receiptKey)) {
+        return {success: true, duplicate: true, durable: true, data: {itemIDs: [receipts.get(receiptKey)]}};
+      }
+      const itemID = ++nextItemID;
+      const item = {
+        itemID,
+        ownerID,
+        locationID,
+        flagID,
+        typeID,
+        quantity,
+        singleton: options.singleton === 0 ? 0 : 1,
+      };
+      grantedItems.set(itemID, item);
+      receipts.set(receiptKey, itemID);
+      return {success: true, durable: true, data: {itemIDs: [itemID]}};
+    },
+    findItemById: (itemID) => grantedItems.get(itemID) || null,
+    updateInventoryItem: (itemID, updater) => {
+      const current = grantedItems.get(itemID);
+      if (!current) return {success: false};
+      const updated = updater(current);
+      grantedItems.set(itemID, updated);
+      return {success: true, data: updated};
+    },
+  };
+  const fakeDependencies = {
+    worldData: {
+      ensureLoaded: () => ({
+        stargates: [{solarSystemID: 30000001, destinationSolarSystemID: 30000002}],
+        stations: [
+          {stationID: 60000001, stationName: "Origin Station", solarSystemID: 30000001, solarSystemName: "Origin", security: 0.9},
+          {stationID: 60000002, stationName: "Destination Station", solarSystemID: 30000002, solarSystemName: "Destination", security: 0.8},
+        ],
+      }),
+    },
+    shipTypeRegistry: {getAllShipTypes: () => shipTypes},
+    itemStore,
+    contractRuntime: {
+      listContractRecords: () => fakeRecords,
+      createContract: async (info) => {
+        const contractID = nextContractID++;
+        const contract = {
+          contractID,
+          type: 3,
+          status: 0,
+          issuerCorpID: shipConfig.issuer.corporationID,
+          title: info.title,
+          description: info.description,
+          startStationID: info.startStationID,
+          endStationID: info.destinationID,
+          reward: info.reward,
+          collateral: info.collateral,
+          volumeM3: info.volumeM3,
+          items: info.itemList.map(([itemID, quantity]) => {
+            const item = grantedItems.get(itemID);
+            return {itemID, itemTypeID: item.typeID, quantity, singleton: item.singleton, inCrate: true};
+          }),
+          createdAtMs: Date.now(),
+          dateExpired: (BigInt(Date.now()) * 10000n + 116444736000000000n + 864000000000n).toString(),
+        };
+        fakeRecords.push(contract);
+        return {success: true, contractIDs: [contractID], contract};
+      },
+    },
+    corpWalletState: {
+      getCorporationWalletBalance: () => fakeBalance,
+      adjustCorporationWalletDivisionBalanceAsync: async (_corpID, _accountKey, delta) => {
+        fakeBalance += delta;
+        return {success: true, data: {balance: fakeBalance}};
+      },
+    },
+    corporationState: {
+      getCorporationRecord: () => ({isNPC: true}),
+      getNpcCharacterOwnerRecord: () => ({ownerName: "Courier Representative"}),
+    },
+    agentAuthority: {getAgentByID: () => ({corporationID: shipConfig.issuer.corporationID})},
+    sessionRegistry: {getSessions: () => []},
+  };
+  const service = new serviceClass({
+    config: shipConfig,
+    stateStore: {
+      load: () => normalizeState(savedState),
+      save: (value) => {
+        savedState = normalizeState(value);
+        return savedState;
+      },
+    },
+    dataDir: os.tmpdir(),
+    dependencies: fakeDependencies,
+    autoStart: false,
+  });
+  const originalLogger = {info: serverLogger.info, warn: serverLogger.warn, error: serverLogger.error};
+  serverLogger.info = () => {};
+  serverLogger.warn = () => {};
+  serverLogger.error = () => {};
+  try {
+    await service.tick(1000000);
+    assert.equal(fakeRecords.length, 2);
+    assert.deepEqual(
+      fakeRecords.map((record) => [record.startStationID, record.endStationID]),
+      [[60000001, 60000002], [60000002, 60000001]],
+    );
+    for (const record of fakeRecords) {
+      assert.match(record.title, /packaged ships/u);
+      assert.ok(record.title.length <= 200);
+      assert.match(record.description, /Packaged ship manifest/u);
+      assert.match(record.description, /Total packaged volume:/u);
+      assert.equal(record.items.length, 2);
+      assert.ok(record.items.reduce((sum, row) => sum + row.quantity, 0) >= 2);
+      assert.equal(new Set(record.items.map((row) => row.itemTypeID)).size, 2);
+      assert.ok(record.items.every((row) => [500001, 500002, 500003].includes(row.itemTypeID)));
+      assert.ok(record.items.every((row) => row.singleton === 0));
+      for (const row of record.items) {
+        const shipName = shipTypesByID.get(row.itemTypeID).name;
+        assert.ok(record.title.includes(shipName));
+        assert.ok(record.description.includes(`- ${row.quantity} x ${shipName}`));
+      }
+      const expectedVolume = record.items.reduce(
+        (sum, row) => sum + shipTypesByID.get(row.itemTypeID).volume * row.quantity,
+        0,
+      );
+      assert.equal(record.volumeM3, expectedVolume);
+      assert.ok(record.volumeM3 >= 750 && record.volumeM3 <= 850);
+      const expectedValue = record.items.reduce(
+        (sum, row) => sum + shipReferenceValues[String(row.itemTypeID)] * row.quantity,
+        0,
+      );
+      assert.equal(record.collateral, calculateCollateral(expectedValue, shipConfig));
+      assert.equal(record.reward, calculateReward({
+        jumps: 1,
+        volumeM3: record.volumeM3,
+        security: 0.8,
+        config: shipConfig,
+        rewardMultiplier: 10,
+        minimumISK: shipConfig.reward.minimumISK * 10,
+        maximumISK: shipConfig.reward.maximumISK * 10,
+      }));
+      assert.ok(record.reward > calculateReward({
+        jumps: 1,
+        volumeM3: record.volumeM3,
+        security: 0.8,
+        config: shipConfig,
+      }));
+    }
+    assert.ok(grantCalls.every((call) => call.singleton === 0));
+
+    const recoveryJobKey = "manual-ship-recovery";
+    const firstReceiptKey = "npcCourierContracts:" + recoveryJobKey + ":cargo:0";
+    const preexistingGrant = itemStore.grantItemToOwnerLocationIdempotent(
+      shipConfig.issuer.corporationID,
+      60000001,
+      shipConfig.issuer.contractHangarFlagID,
+      500001,
+      2,
+      {receiptKey: firstReceiptKey, receiptMetadata: {jobKey: recoveryJobKey, stackIndex: 0}, singleton: 0},
+    );
+    const preexistingItemID = preexistingGrant.data.itemIDs[0];
+    service._state.contracts[recoveryJobKey] = {
+      jobKey: recoveryJobKey,
+      contractID: 0,
+      state: "recovery",
+      lastEvent: "cargo-grant-failed",
+      cargoKind: "ships",
+      originStationID: 60000001,
+      destinationStationID: 60000002,
+      typeID: 500001,
+      quantity: 5,
+      itemID: 0,
+      items: [
+        {typeID: 500001, quantity: 2, itemID: 0},
+        {typeID: 500002, quantity: 3, itemID: 0},
+      ],
+      reward: 123456789,
+      collateral: 987654321,
+      jumps: 1,
+      createdAtMs: 1000000,
+      updatedAtMs: 1000000,
+    };
+    service._stateStore.save(service._state);
+    await service.tick(1001000);
+
+    assert.equal(fakeRecords.length, 3);
+    const recoveredRecord = fakeRecords[2];
+    assert.equal(recoveredRecord.items.length, 2);
+    assert.equal(recoveredRecord.items[0].itemID, preexistingItemID);
+    assert.deepEqual(recoveredRecord.items.map((row) => row.itemTypeID), [500001, 500002]);
+    assert.ok(recoveredRecord.items.every((row) => row.singleton === 0));
+    assert.equal(recoveredRecord.reward, 123456789);
+    assert.equal(recoveredRecord.collateral, 987654321);
+    assert.equal(receipts.get(firstReceiptKey), preexistingItemID);
+    assert.equal(grantCalls.filter((call) => call.receiptKey === firstReceiptKey).length, 2);
+    assert.equal(service._state.contracts[recoveryJobKey].state, "active");
+    assert.ok(service._state.contracts[recoveryJobKey].items.every((item) => item.itemID > 0));
   } finally {
     service.stop();
     serverLogger.info = originalLogger.info;
@@ -747,6 +1071,7 @@ async function validateAutomation() {
 }
 
 validateServiceLifecycle()
+  .then(validateShipContractGenerationAndRecovery)
   .then(validateAutomation)
   .then(() => {
     console.log("NPC Courier Contracts manifest, configuration, routing, rewards, state, lifecycle, automation, and package checks passed.");

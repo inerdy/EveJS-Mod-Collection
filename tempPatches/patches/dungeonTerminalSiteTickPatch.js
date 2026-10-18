@@ -3,7 +3,7 @@ const path = require("node:path");
 const INSTALL_FLAG = Symbol.for("evejs.tempPatches.dungeonTerminalSiteTickPatchInstalled");
 const DEFAULT_INTERVAL_MS = 1_000;
 const TERMINAL_STATES = new Set(["completed", "failed", "despawned"]);
-const SERVER_SRC_PATH = path.resolve(__dirname, "..", "..", "..", "server", "src");
+const SERVER_SRC_PATH = path.join(path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", "..")), "server", "src");
 const SPACE_RUNTIME_PATH = path.join(SERVER_SRC_PATH, "space", "runtime.js");
 const DUNGEON_RUNTIME_PATH = path.join(
   SERVER_SRC_PATH,

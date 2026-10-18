@@ -4,7 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "serverhealthmonitor";
-const MOD_VERSION = "0.2.0";
+const MOD_VERSION = "0.2.2";
 const SERVICE_MANAGER_SUFFIX = "/server/src/services/servicemanager.js";
 const BEYONCE_SERVICE_SUFFIX = "/server/src/services/ship/beyonceservice.js";
 const INSTALLED = Symbol.for("evejs.serverHealthMonitor.loaderInstalled");

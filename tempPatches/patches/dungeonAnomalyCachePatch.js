@@ -3,7 +3,7 @@ const path = require("node:path");
 const PATCH_FLAG = Symbol.for("evejs.tempPatches.dungeonAnomalyCachePatchInstalled");
 const ACTIVE_STATES = new Set(["seeded", "active", "paused"]);
 const COMBAT_ARCHETYPE_ID = 24;
-const SERVER_SRC_PATH = path.resolve(__dirname, "..", "..", "..", "server", "src");
+const SERVER_SRC_PATH = path.join(path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", "..")), "server", "src");
 const RUNTIME_STATE_PATH = path.join(
   SERVER_SRC_PATH,
   "services",

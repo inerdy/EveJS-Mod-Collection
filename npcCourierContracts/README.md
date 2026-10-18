@@ -1,10 +1,16 @@
 # NPC Courier Contracts
 
-[![EveJS 0.12.9](https://img.shields.io/badge/EveJS-0.12.9-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 NPC Courier Contracts is a native-only EveJS mod that creates public courier contracts from major trade hubs and gradually promotes active NPC stations into additional contract origins.
+
+Version `0.6.7` adds freighter-scale courier offers carrying multiple packaged
+frigates, cruisers, and mining barges. About one third of generated routes use
+ship cargo by default. Ship freight uses a separate 1,000,000 m3 load profile
+and pays 10 times the comparable mineral-contract formula, with a 500,000,000
+ISK cap under the default reward settings.
 
 Version `0.6.4` fixes station-level automatic routing and ensures dock
 automation remains hooked when the launcher activates the mod after EveJS has
@@ -12,8 +18,9 @@ already loaded its core modules or exposes the docked station through an
 alternate session field. It also includes the persistent 50-level
 Hauler progression with a
 Hauler Progression and Courier Automation window in the launcher Mods menu. NPC courier completions
-award XP, and each level after Level 1 adds 3% to future courier payout up to
-the existing 50,000,000 ISK cap.
+award XP, and each level after Level 1 adds 3% to future courier payout. Mineral
+rewards use the standard 50,000,000 ISK cap; ship freight uses the configured
+multiplier and its proportionally scaled cap.
 
 The generator can also create a separate return contract for each route. For
 example, a Jita-to-Amarr contract may be accompanied by an independent
@@ -44,7 +51,7 @@ courier remains, the mod leaves the current route unchanged.
 
 ## Requirements
 
-- EveJS 0.12.9
+- EveJS 261018.1
 - Native backend
 - A game-server restart after enabling, disabling, or updating the mod
 - A funded NPC issuer corporation cash division
@@ -75,9 +82,17 @@ Initial origins are:
 - Rens VI - Moon 8 - Brutor Tribe Treasury (`60004588`)
 - Hek VIII - Moon 12 - Boundless Creation Factory (`60005686`)
 
-Contracts contain multiple real NPC-owned cargo stacks. Acceptance moves the package and its contents into the hauler's ship cargo hold, so cargo capacity, ship loss, wreck recovery, delivery, collateral, expiration, and failure all matter. The default cargo catalog uses ordinary mineral commodities with type IDs 34 through 38.
+Contracts contain multiple real NPC-owned cargo stacks. Acceptance moves the package and its contents into the hauler's ship cargo hold, so cargo capacity, ship loss, wreck recovery, delivery, collateral, expiration, and failure all matter. Mineral contracts continue to use ordinary commodities with type IDs 34 through 38 and preview their commodity manifests in the offer title. Ship freight contracts carry mixed stacks of packaged frigates, cruisers, and mining barges selected from EveJS's published ship data. Their titles preview hull names and quantities in the offer list; the full description lists each cargo row and total volume. A courier offer is carried as one sealed plastic wrap containing those rows.
 
 Rewards increase with shortest stargate jump distance, cargo volume, and route security risk. The default jump component is 450,000 ISK per jump. By default, 35% of generated contracts prefer a destination within 5 jumps when one is available; the configured collateral is based on the cargo's reference value.
+
+Ship freight uses the same route and volume reward formula with a separate 10x
+multiplier. Its reward cap scales with the standard cap (500,000,000 ISK at
+the default 50,000,000 ISK cap). Ship reference values for collateral come
+from published EveJS hull metadata and can be overridden by type ID in
+`shipCargo.referenceValueISKByTypeID`.
+By default, about one in three generated contracts carries ships, with a
+1,000,000 m3 target and a randomized 25–90% load across multiple hull types.
 
 Successful courier delivery also awards a random 10–20 PLEX completion bonus. PLEX is paid directly to the accepting character's PLEX balance after the cargo reaches its destination; failed or abandoned contracts do not pay it.
 
@@ -100,6 +115,8 @@ stopped, then restart the Game server. Important settings include:
 - `reward` and `collateral` formula values
 - `cargo.referenceVolumeM3`, `cargo.minimumLoadFraction`, `cargo.maximumLoadFraction`, and stack-count limits
 - `cargoCatalog`
+- `shipCargo.chance`, `shipCargo.targetVolumeM3`, load fractions, stack limits, and `shipCargo.rewardMultiplier`
+- `shipCargo.allowedGroupIDs` (frigates `25`, cruisers `26`, mining barges `463`) and `shipCargo.referenceValueISKByTypeID`
 - `plexReward.minimum` and `plexReward.maximum`
 - `haulerProgression.maxLevel`, XP awards, level thresholds, and payout bonus
 - Contract title and description templates

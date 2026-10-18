@@ -1,6 +1,10 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const path = require("node:path");
+
+const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", "..", ".."));
+const serverPath = (...segments) => path.join(EVEJS_ROOT, "server", "src", ...segments);
 
 const GENERATOR_ID = "cosmeticStoreSeeder";
 const MOD_VERSION = "0.1.0";
@@ -673,9 +677,7 @@ function seedCosmeticStore(options = {}) {
     }
   }
   try {
-    const storeState = require(
-      "../../../server/src/services/newEdenStore/storeState",
-    );
+    const storeState = require(serverPath("services", "newEdenStore", "storeState"));
     if (storeState && typeof storeState.resetStoreCaches === "function") {
       storeState.resetStoreCaches();
     }

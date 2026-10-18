@@ -11,8 +11,8 @@ const {normalizeState} = require(path.join(modRoot, "lib", "state"));
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "shipwarpfuel");
-assert.equal(manifest.version, "0.2.1");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["0.12.9"]);
+assert.equal(manifest.version, "0.2.2");
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
 assert.deepEqual(manifest.clientMenu, {apiVersion: 1, entrypoint: "client/menu.py"});
 
 // UI/package validation is portable; backend tests require an installed host.
@@ -38,7 +38,7 @@ assert.equal(config.fuelUnitsPerAUByClass.battleship, 2);
 assert.equal(config.fuelUnitsPerAUByClass.industrialTransport, 2.5);
 assert.equal(config.fuelUnitsPerAUByClass.capitalFreighter, 4);
 assert.equal(config.minimumWarpFuel, 1);
-assert.equal(config.emergencyFuelUnits, 25);
+assert.equal(config.emergencyFuelPercent, 35);
 assert.equal(config.emergencyFeeISK, 1000000);
 assert.equal(config.emergencyCooldownSeconds, 900);
 assert.equal(config.serviceShipTypeID, 648);
@@ -203,7 +203,7 @@ assert.equal(fuelRows.get(700).quantity, 8);
 
 const bayState = fuelService._fuelBayState(42, session);
 assert.equal(bayState.fuelUnits, 8);
-assert.equal(bayState.fuelCapacityUnits, 1000);
+assert.equal(bayState.fuelCapacityUnits, 1500);
 assert.equal(bayState.fuelBayItems[0].typeID, 17887);
 const loadResult = JSON.parse(fuelService.Handle_LoadFuel([{quantity: 5}], session));
 assert.equal(loadResult.moved, 5);
@@ -274,7 +274,7 @@ assert.match(loader, /warpToEntity/u);
 assert.match(loader, /warpToPoint/u);
 assert.match(loader, /fittingRuntime\.js/u);
 assert.match(loader, /attachSession/u);
-assert.match(loader, /MOD_VERSION = "0\.2\.1"/u);
+assert.match(loader, /MOD_VERSION = "0\.2\.2"/u);
 
 const client = fs.readFileSync(path.join(modRoot, "client", "menu.py"), "utf8");
 assert.match(client, /Ship Warp Fuel/u);

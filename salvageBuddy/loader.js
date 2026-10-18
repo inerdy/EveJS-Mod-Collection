@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const MOD_ID = "salvagebuddy";
 const MOD_VERSION = "0.2.14";
+const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const ENTITY_SERVICE_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}drone${path.sep}entityService.js`;
 const INSTALLED = Symbol.for("evejs.salvageBuddy.loaderInstalled");
@@ -62,7 +63,7 @@ function installHooks() {
 
         let scene = null;
         try {
-          const spaceRuntime = require(path.join(__dirname, "..", "..", "server", "src", "space", "runtime"));
+          const spaceRuntime = require(path.join(EVEJS_ROOT, "server", "src", "space", "runtime"));
           scene = spaceRuntime.getSceneForSession(session);
         } catch (error) {
           log(`unable to inspect drone return request: ${error.message}`);

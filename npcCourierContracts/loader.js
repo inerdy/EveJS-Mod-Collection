@@ -4,7 +4,8 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "npccouriercontracts";
-const MOD_VERSION = "0.6.6";
+const MOD_VERSION = "0.6.7";
+const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const TRANSITIONS_SUFFIX = `${path.sep}server${path.sep}space${path.sep}transitions.js`;
 const CONTRACT_PROXY_SUFFIX = `${path.sep}server${path.sep}services${path.sep}_other${path.sep}contractProxyService.js`;
@@ -183,11 +184,11 @@ function installHooks() {
   // Launcher activation can happen after these modules were already loaded.
   // Patch their live exports as well as intercepting future loads.
   patchCachedModule(
-    path.join(__dirname, "..", "..", "server", "src", "space", "transitions"),
+    path.join(EVEJS_ROOT, "server", "src", "space", "transitions"),
     hookTransitions,
   );
   patchCachedModule(
-    path.join(__dirname, "..", "..", "server", "src", "services", "_other", "contractProxyService"),
+    path.join(EVEJS_ROOT, "server", "src", "services", "_other", "contractProxyService"),
     hookContractProxy,
   );
 }
