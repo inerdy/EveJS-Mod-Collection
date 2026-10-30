@@ -74,11 +74,11 @@ assert.deepEqual(packageFiles.sort(), [
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npccouriercontracts");
 assert.equal(manifest.displayName, "NPC Courier Contracts");
-assert.equal(manifest.version, "0.6.7");
+assert.equal(manifest.version, "0.7.2");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261028.1"]);
 assert.deepEqual(manifest.clientMenu, {
   apiVersion: 1,
   entrypoint: "client/menu.py",
@@ -545,7 +545,7 @@ async function validateServiceLifecycle() {
     assert.equal(fakeRecords.length, 2);
     assert.ok(Object.values(savedState.contracts).every((entry) => entry.cargoKind === "minerals"));
     assert.ok(fakeRecords.every((record) => record.title.includes("mineral cargo stacks")));
-    assert.ok(fakeRecords.every((record) => record.description.includes("One sealed courier package")));
+    assert.ok(fakeRecords.every((record) => record.description.includes("Manifest:")));
     assert.ok(fakeRecords.every((record) => record.description.includes("Total cargo volume:")));
     assert.deepEqual(
       fakeRecords.map((record) => [record.startStationID, record.endStationID]),

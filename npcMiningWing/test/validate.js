@@ -48,7 +48,7 @@ assert.deepEqual(packageFiles.sort(), [
 
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "npcminingwing");
-assert.equal(manifest.version, "0.12.13");
+assert.equal(manifest.version, "0.12.19");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
@@ -130,7 +130,7 @@ const hostAdapter = fs.readFileSync(
 );
 const evejsRootCandidates = [
   process.env.EVEJS_ROOT,
-  path.resolve(modRoot, "..", "..", "EveJS-v0.12.9"),
+  path.resolve(modRoot, "..", "..", "EveJS-261028.1"),
   path.resolve(modRoot, "..", ".."),
 ].filter(Boolean);
 const evejsRoot = evejsRootCandidates.find((candidate) => fs.existsSync(

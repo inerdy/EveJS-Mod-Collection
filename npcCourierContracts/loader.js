@@ -4,14 +4,16 @@ const Module = require("node:module");
 const path = require("node:path");
 
 const MOD_ID = "npccouriercontracts";
-const MOD_VERSION = "0.6.7";
+const MOD_VERSION = "0.7.2";
 const EVEJS_ROOT = path.resolve(process.env.EVEJS_ROOT || path.resolve(__dirname, "..", ".."));
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const TRANSITIONS_SUFFIX = `${path.sep}server${path.sep}space${path.sep}transitions.js`;
 const CONTRACT_PROXY_SUFFIX = `${path.sep}server${path.sep}services${path.sep}_other${path.sep}contractProxyService.js`;
+const CONTRACT_RUNTIME_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}contracts${path.sep}contractRuntimeState.js`;
 const INSTALLED = Symbol.for("evejs.npcCourierContracts.loaderInstalled");
 const DOCK_HOOKED = Symbol.for("evejs.npcCourierContracts.dockHooked");
 const CONTRACT_PROXY_HOOKED = Symbol.for("evejs.npcCourierContracts.contractProxyHooked");
+const CONTRACT_RUNTIME_HOOKED = Symbol.for("evejs.npcCourierContracts.contractRuntimeHooked");
 
 function log(message) {
   console.log(`[${MOD_ID}] ${message}`);
@@ -35,6 +37,7 @@ function installHooks() {
   const serviceManagerCache = new WeakMap();
   const transitionModuleCache = new WeakMap();
   const contractProxyCache = new WeakMap();
+  const contractRuntimeCache = new WeakMap();
   let serviceInstance = null;
   let NpcCourierContractsService = null;
 
@@ -122,6 +125,30 @@ function installHooks() {
     return exported;
   }
 
+  function hookContractRuntime(exported) {
+    if (!exported || typeof exported.completeContract !== "function") {
+      return exported;
+    }
+    if (exported[CONTRACT_RUNTIME_HOOKED]) {
+      return exported;
+    }
+    const originalComplete = exported.completeContract;
+    exported.completeContract = async function completeCourierManifestBeforeSettlement(
+      contractID,
+      targetStatus,
+      session,
+      ...args
+    ) {
+      const completedStatus = exported.CONTRACT_STATUS && exported.CONTRACT_STATUS.FINISHED;
+      if (Number(targetStatus ?? completedStatus) === Number(completedStatus)) {
+        await getService().prepareCourierCompletion(contractID, session);
+      }
+      return originalComplete.call(this, contractID, targetStatus, session, ...args);
+    };
+    Object.defineProperty(exported, CONTRACT_RUNTIME_HOOKED, {value: true});
+    return exported;
+  }
+
   function patchCachedModule(request, patcher) {
     try {
       const resolved = require.resolve(request);
@@ -154,6 +181,15 @@ function installHooks() {
       }
       const patched = hookContractProxy(exported);
       contractProxyCache.set(exported, patched);
+      return patched;
+    }
+
+    if (resolvedString.endsWith(CONTRACT_RUNTIME_SUFFIX)) {
+      if (contractRuntimeCache.has(exported)) {
+        return contractRuntimeCache.get(exported);
+      }
+      const patched = hookContractRuntime(exported);
+      contractRuntimeCache.set(exported, patched);
       return patched;
     }
 
@@ -191,10 +227,14 @@ function installHooks() {
     path.join(EVEJS_ROOT, "server", "src", "services", "_other", "contractProxyService"),
     hookContractProxy,
   );
+  patchCachedModule(
+    path.join(EVEJS_ROOT, "server", "src", "services", "contracts", "contractRuntimeState"),
+    hookContractRuntime,
+  );
 }
 
 installHooks();
-log(`v${MOD_VERSION} active — native NPC courier generator and automation enabled`);
+log(`v${MOD_VERSION} active — native NPC courier generator and real manifest cargo enabled`);
 
 module.exports = Object.freeze({
   active: true,

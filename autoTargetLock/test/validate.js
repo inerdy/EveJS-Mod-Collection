@@ -13,7 +13,7 @@ assert.equal(manifest.id, "autotargetlock");
 assert.equal(manifest.kind, "loader");
 assert.deepEqual(manifest.activation, {strategy: "loader_rename"});
 assert.deepEqual(manifest.clientMenu, {apiVersion: 1, entrypoint: "client/menu.py"});
-assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261028.1"]);
 
 const loader = read("loader.js");
 assert.match(loader, /autoTargetLock/u);

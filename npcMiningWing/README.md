@@ -1,7 +1,7 @@
 # NPC Mining Wing
 
 [![License: MIT](https://img.shields.io/github/license/inerdy/NPC-Wing-Mining)](LICENSE)
-[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/inerdy/NPC-Wing-Mining)
+[![EveJS 261028.1](https://img.shields.io/badge/EveJS-261028.1-2f6f9f)](https://github.com/inerdy/NPC-Wing-Mining)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](https://github.com/inerdy/NPC-Wing-Mining)
 [![Last commit](https://img.shields.io/github/last-commit/inerdy/NPC-Wing-Mining)](https://github.com/inerdy/NPC-Wing-Mining/commits/main)
 
@@ -37,10 +37,19 @@ collection ship. The player's active ship is not counted toward that limit.
 
 ## Requirements
 
-- Native EveJS `261018.1` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
+- Native EveJS `261028.1` — [EveJS Discord](https://discord.gg/WpYh9zpNrx)
 - [EveJS Launcher `1.0.69`](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69) or newer
 
 This mod is native-only. Docker deployments are not supported.
+
+## Drone recovery (0.12.19)
+
+Before a wing ship recalls, follows a same-system warp, or crosses a gate, the
+mod recovers its marked drones directly into that ship's drone bay and removes
+their space entities. This avoids losing drones when a return order cannot
+finish before the ship moves. A recall also scans for marked drones left by an
+older version and recovers them across systems. When the owner ship is docked,
+the startup recovery continues to collect any remaining marked drones.
 
 ## Installation
 
@@ -184,7 +193,7 @@ bounded between cycles. A stopped process or blocked event loop cannot emit a
 heartbeat; no logger can guarantee output in those cases.
 
 The loader validates the EveJS version and the native service seams it needs before
-registering the mod. It currently requires EveJS `261018.1` and the native backend;
+registering the mod. It currently requires EveJS `261028.1` and the native backend;
 unsupported layouts fail with a clear startup error.
 
 From the `Server Mods` directory, run the package checks with:

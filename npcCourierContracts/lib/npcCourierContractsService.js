@@ -41,7 +41,7 @@ const {
 
 const MOD_ID = "npcCourierContracts";
 const SERVICE_NAME = "npcCourierContracts";
-const CORP_ROLE_CONTRACT_MANAGER = 72057594037927936n;
+const NPC_ISSUER_AUTHORITY_HOOKED = Symbol.for("evejs.npcCourierContracts.npcIssuerAuthorityHooked");
 const FILETIME_UNIX_EPOCH = 116444736000000000n;
 const FILETIME_TICKS_PER_MS = 10000n;
 const CONTRACT_TYPE_COURIER = 3;
@@ -53,6 +53,9 @@ const STATUS_CANCELLED = 5;
 const STATUS_REJECTED = 6;
 const STATUS_FAILED = 7;
 const STATUS_DELETED = 8;
+const CONTRACT_ESCROW_OWNER_ID = 1;
+const CONTRACT_ESCROW_STAGE_REASON = "contract-escrow-stage";
+const CONTRACT_CONTENT_DELIVER_REASON = "contract-content-deliver";
 const DEFAULT_CORPORATION_CONTRACT_HANGAR_FLAG = 115;
 const CORPORATION_CONTRACT_HANGAR_FLAGS = new Set([115, 116, 117, 118, 119, 120, 121]);
 const ACTIVE_STATUSES = new Set([STATUS_OUTSTANDING, STATUS_IN_PROGRESS]);
@@ -71,6 +74,26 @@ function positive(value, fallback = 0) {
 function finite(value, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function contractCreationErrorMessage(error) {
+  const fallback = String(error && error.message || error || "unknown");
+  const payload = error && error.machoErrorResponse && error.machoErrorResponse.payload;
+  const header = payload && Array.isArray(payload.header) ? payload.header : [];
+  const className = String(header[0] && header[0].value || "");
+  const stateEntries = header[2] && Array.isArray(header[2].entries)
+    ? header[2].entries
+    : [];
+  const remoteMessageEntry = stateEntries.find((entry) => Array.isArray(entry) && entry[0] === "msg");
+  const argumentMessage = Array.isArray(header[1]) ? header[1][0] : "";
+  const remoteMessage = remoteMessageEntry && remoteMessageEntry[1] || argumentMessage;
+  const message = Buffer.isBuffer(remoteMessage)
+    ? remoteMessage.toString("utf8")
+    : typeof remoteMessage === "string"
+      ? remoteMessage
+      : "";
+  const details = [className, message].filter(Boolean).join(": ");
+  return details ? `${fallback} (${details})` : fallback;
 }
 
 function corporationContractHangarFlag(config) {
@@ -169,6 +192,23 @@ function getSessionCharacterID(session) {
     session.charid ||
     session.charID
   ), 0);
+}
+
+function inventoryItemQuantity(item) {
+  if (Number(item && item.singleton) === 1) return 1;
+  return positive(item && (item.stacksize ?? item.quantity), 1);
+}
+
+function manifestQuantities(rows) {
+  const quantities = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const typeID = positive(row && (row.itemTypeID || row.typeID), 0);
+    const quantity = positive(row && row.quantity, 0);
+    if (typeID && quantity) {
+      quantities.set(typeID, (quantities.get(typeID) || 0) + quantity);
+    }
+  }
+  return quantities;
 }
 
 function getSessionSolarSystemID(session) {
@@ -324,17 +364,19 @@ function buildMultiCargoContractInfo({
     jumps,
   })}`.slice(0, 200);
   info.description = cargoKind === "ships"
-    ? `One sealed courier package contains ${shipCount} packaged ships across ` +
+    ? `Manifest: ${shipCount} packaged ships across ` +
       `${cargoItems.length} hull types.\nPackaged ship manifest:\n` +
       `${manifestRows.join("\n")}\n\n` +
       `Route: ${stationLabel(origin)} to ${stationLabel(destination)} (${jumps} stargate jumps).\n` +
       `Total packaged volume: ${Math.round(totals.volumeM3 * 100) / 100} m3. ` +
-      `Contract volume reflects the cargo inside the wrap.`
-    : `One sealed courier package contains ${cargoItems.length} mineral cargo stacks:\n` +
+      `Accepting the contract transfers the listed ships to your station hangar. ` +
+      `Move the full manifest and courier package marker to the destination to complete delivery; collateral is at risk if the contract fails.`
+    : `Manifest: ${cargoItems.length} mineral cargo stacks:\n` +
       `${manifestRows.join("\n")}\n\n` +
       `Route: ${stationLabel(origin)} to ${stationLabel(destination)} (${jumps} stargate jumps).\n` +
       `Total cargo volume: ${Math.round(totals.volumeM3 * 100) / 100} m3. ` +
-      `Contract volume reflects the cargo inside the wrap.`;
+      `Accepting the contract transfers the listed goods to your station hangar. ` +
+      `Move the full manifest and courier package marker to the destination to complete delivery; collateral is at risk if the contract fails.`;
   return info;
 }
 
@@ -365,6 +407,7 @@ class NpcCourierContractsService extends BaseService {
     this._tickInProgress = false;
     this._ready = false;
     this._lastError = "";
+    this._contractGenerationBlockedReason = "";
     this._fundingWarningIssued = false;
     this._automationLanes = new Map();
 
@@ -649,6 +692,13 @@ class NpcCourierContractsService extends BaseService {
 
   async onContractAccepted(session, contractID) {
     const numericContractID = positive(contractID, 0);
+    const dependencies = this._getDependencies();
+    const record = dependencies.contractRuntime.getContractRecord(numericContractID);
+    if (this._isGeneratedRecord(record) && Number(record.status) === STATUS_IN_PROGRESS) {
+      const entry = this._getOrCreateContractStateEntry(record);
+      await this._deliverAcceptedManifest(record, entry, dependencies, session);
+      this._stateStore.save(this._state);
+    }
     const state = this._buildAutomationState(session);
     if (state.autoRoute && state.routeTarget) {
       sendAutomationNotification(session, {
@@ -660,6 +710,222 @@ class NpcCourierContractsService extends BaseService {
       });
     }
     return state;
+  }
+
+  _getOrCreateContractStateEntry(record) {
+    const contractID = positive(record && record.contractID, 0);
+    let entry = Object.values(this._state.contracts || {})
+      .find((candidate) => positive(candidate && candidate.contractID, 0) === contractID);
+    if (!entry) {
+      entry = buildStateEntryFromRecord(record, "contract:");
+      this._state.contracts[entry.jobKey] = entry;
+    }
+    return entry;
+  }
+
+  async _deliverAcceptedManifest(record, entry, dependencies, preferredSession = null) {
+    const rows = Array.isArray(record && record.packageItems) ? record.packageItems : [];
+    if (!rows.length) {
+      entry.manifestHandedOff = true;
+      return true;
+    }
+    const contractID = positive(record.contractID, 0);
+    const acceptorID = positive(record.acceptorID, 0);
+    const escrowLocationID = dependencies.contractRuntime.getContractEscrowLocationID(contractID);
+    if (!contractID || !acceptorID || !escrowLocationID) {
+      throw new Error("contract manifest custody details are unavailable");
+    }
+    const changes = [];
+    const deliveryFlagID = record.acceptorWallet && record.acceptorWallet.kind === "corporation"
+      ? dependencies.itemStore.ITEM_FLAGS.CORP_DELIVERIES
+      : dependencies.itemStore.ITEM_FLAGS.HANGAR;
+    for (const row of rows) {
+      const itemID = positive(row && row.itemID, 0);
+      const item = dependencies.itemStore.findItemById(itemID);
+      if (!item) {
+        throw new Error(`manifest item ${itemID} is missing`);
+      }
+      const expectedTypeID = positive(row && (row.itemTypeID || row.typeID), 0);
+      const expectedQuantity = positive(row && row.quantity, 0);
+      if (
+        (expectedTypeID && positive(item.typeID, 0) !== expectedTypeID) ||
+        (expectedQuantity && inventoryItemQuantity(item) < expectedQuantity)
+      ) {
+        throw new Error(`manifest item ${itemID} does not match its contract quantity or type`);
+      }
+      if (positive(item.ownerID, 0) === acceptorID && positive(item.locationID, 0) !== escrowLocationID) {
+        continue;
+      }
+      if (
+        positive(item.ownerID, 0) !== CONTRACT_ESCROW_OWNER_ID ||
+        positive(item.locationID, 0) !== escrowLocationID
+      ) {
+        throw new Error(`manifest item ${itemID} is no longer in contract escrow`);
+      }
+      const result = dependencies.contractItemCustody.transferItem({
+        contractID,
+        item,
+        ownerID: acceptorID,
+        locationID: positive(record.startStationID, 0),
+        flagID: deliveryFlagID,
+        quantity: null,
+        reason: CONTRACT_CONTENT_DELIVER_REASON,
+        actor: getSessionCharacterID(preferredSession) || acceptorID,
+        idempotencyKey: `${MOD_ID}:${contractID}:accept-manifest:${itemID}`,
+      });
+      if (!result || result.success !== true) {
+        throw new Error(result && result.errorMsg || `could not hand off manifest item ${itemID}`);
+      }
+      changes.push(...(result.data && result.data.changes || []));
+    }
+    entry.manifestHandedOff = true;
+    entry.updatedAtMs = Date.now();
+    this._state.contracts[entry.jobKey] = entry;
+    const session = preferredSession || dependencies.sessionRegistry.findSessionByCharacterID(acceptorID);
+    this._syncCourierInventory(session, changes, dependencies);
+    return true;
+  }
+
+  _syncCourierInventory(session, changes, dependencies) {
+    const normalizedChanges = (Array.isArray(changes) ? changes : [])
+      .filter((change) => change && change.item);
+    if (
+      normalizedChanges.length > 0 &&
+      session &&
+      dependencies.characterState &&
+      typeof dependencies.characterState.emitItemsChangedBatchForSession === "function"
+    ) {
+      dependencies.characterState.emitItemsChangedBatchForSession(session, normalizedChanges);
+    }
+  }
+
+  async prepareCourierCompletion(contractID, session) {
+    const dependencies = this._getDependencies();
+    const numericContractID = positive(contractID, 0);
+    const record = dependencies.contractRuntime.getContractRecord(numericContractID);
+    if (
+      !this._isGeneratedRecord(record) ||
+      Number(record.status) !== STATUS_IN_PROGRESS
+    ) {
+      return true;
+    }
+    const acceptorID = positive(record.acceptorID, 0);
+    const characterID = getSessionCharacterID(session);
+    const corporationID = positive(
+      session && (session.corporationID || session.corpid || session.corpID),
+      0,
+    );
+    if (acceptorID !== characterID && acceptorID !== corporationID) {
+      throw new Error("Only the courier contract acceptor can deliver this manifest.");
+    }
+    const destinationStationID = positive(record.endStationID, 0);
+    if (getSessionStationID(session) !== destinationStationID) {
+      throw new Error("Dock at the courier contract destination before delivering the manifest.");
+    }
+    const entry = this._getOrCreateContractStateEntry(record);
+    if (!entry.manifestHandedOff) {
+      await this._deliverAcceptedManifest(record, entry, dependencies, session);
+      this._stateStore.save(this._state);
+    }
+    if (!entry.manifestHandedOff) {
+      throw new Error("The courier manifest has not been transferred to the hauler.");
+    }
+
+    const escrowLocationID = dependencies.contractRuntime.getContractEscrowLocationID(numericContractID);
+    const manifest = manifestQuantities(record.packageItems);
+    if (!manifest.size) return true;
+    const itemStore = dependencies.itemStore;
+    const cargoOwnerID = acceptorID;
+    const destinationItems = [];
+    const seenItemIDs = new Set();
+    const addItems = (items) => {
+      for (const item of Array.isArray(items) ? items : []) {
+        const itemID = positive(item && item.itemID, 0);
+        if (!itemID || seenItemIDs.has(itemID)) continue;
+        seenItemIDs.add(itemID);
+        destinationItems.push(item);
+      }
+    };
+    addItems(itemStore.listContainerItems(cargoOwnerID, destinationStationID, null));
+    const dockedShips = itemStore.listCharacterShipItems(cargoOwnerID)
+      .filter((ship) => positive(ship && ship.locationID, 0) === destinationStationID);
+    const activeShip = itemStore.getActiveShipItem(characterID);
+    if (
+      activeShip &&
+      positive(activeShip.locationID, 0) === destinationStationID &&
+      !dockedShips.some((ship) => positive(ship.itemID, 0) === positive(activeShip.itemID, 0))
+    ) {
+      dockedShips.push(activeShip);
+    }
+    for (const ship of dockedShips) {
+      addItems(itemStore.listContainerItems(cargoOwnerID, ship.itemID, null));
+    }
+
+    const escrowItems = itemStore.listContainerItems(
+      CONTRACT_ESCROW_OWNER_ID,
+      escrowLocationID,
+      null,
+    ).filter((item) => positive(item && item.itemID, 0) !== positive(record.plasticWrapItemID, 0));
+    const quantitiesInEscrow = new Map();
+    for (const item of escrowItems) {
+      const typeID = positive(item && item.typeID, 0);
+      if (typeID) {
+        quantitiesInEscrow.set(
+          typeID,
+          (quantitiesInEscrow.get(typeID) || 0) + inventoryItemQuantity(item),
+        );
+      }
+    }
+    const quantitiesAtDestination = new Map();
+    for (const item of destinationItems) {
+      const typeID = positive(item && item.typeID, 0);
+      if (typeID) {
+        quantitiesAtDestination.set(
+          typeID,
+          (quantitiesAtDestination.get(typeID) || 0) + inventoryItemQuantity(item),
+        );
+      }
+    }
+    for (const [typeID, required] of manifest) {
+      const available = (quantitiesInEscrow.get(typeID) || 0) +
+        (quantitiesAtDestination.get(typeID) || 0);
+      if (available < required) {
+        throw new Error(
+          `Courier manifest is incomplete at the destination: type ${typeID} requires ${required}, found ${available}.`,
+        );
+      }
+    }
+
+    const changes = [];
+    for (const [typeID, required] of manifest) {
+      let needed = Math.max(0, required - (quantitiesInEscrow.get(typeID) || 0));
+      for (const item of destinationItems.filter((candidate) => positive(candidate.typeID, 0) === typeID)) {
+        if (needed <= 0) break;
+        const available = inventoryItemQuantity(item);
+        const quantity = Math.min(available, needed);
+        const result = dependencies.contractItemCustody.transferItem({
+          contractID: numericContractID,
+          item,
+          ownerID: CONTRACT_ESCROW_OWNER_ID,
+          locationID: escrowLocationID,
+          flagID: 0,
+          quantity: quantity === available ? null : quantity,
+          reason: CONTRACT_ESCROW_STAGE_REASON,
+          actor: characterID,
+          idempotencyKey: `${MOD_ID}:${numericContractID}:deliver:${item.itemID}:${quantity}`,
+        });
+        if (!result || result.success !== true) {
+          throw new Error(result && result.errorMsg || `could not stage delivered item ${item.itemID}`);
+        }
+        changes.push(...(result.data && result.data.changes || []));
+        needed -= quantity;
+      }
+      if (needed > 0) {
+        throw new Error(`Courier manifest is incomplete at the destination: type ${typeID} is short by ${needed}.`);
+      }
+    }
+    this._syncCourierInventory(session, changes, dependencies);
+    return true;
   }
 
   async onContractCompleted(session, contractID) {
@@ -752,15 +1018,65 @@ class NpcCourierContractsService extends BaseService {
     this._dependencies = {
       worldData: require(serverPath("space", "worldData")),
       contractRuntime: require(serverPath("services", "contracts", "contractRuntimeState")),
+      contractItemCustody: require(serverPath("services", "inventory", "contractItemCustody")),
       itemStore: require(serverPath("services", "inventory", "itemStore")),
+      characterState: require(serverPath("services", "character", "characterState")),
       shipTypeRegistry: require(serverPath("services", "chat", "shipTypeRegistry")),
       walletState: require(serverPath("services", "account", "walletState")),
       corpWalletState: require(serverPath("services", "corporation", "corpWalletState")),
       corporationState: require(serverPath("services", "corporation", "corporationState")),
+      corporationAuthority: require(serverPath("services", "corporation", "corporationAuthority")),
       agentAuthority: require(serverPath("services", "agent", "agentAuthority")),
       sessionRegistry: require(serverPath("services", "chat", "sessionRegistry")),
     };
+    this._installNpcIssuerHooks(this._dependencies);
     return this._dependencies;
+  }
+
+  _installNpcIssuerHooks(dependencies) {
+    const authorityModule = dependencies && dependencies.corporationAuthority;
+    if (
+      !authorityModule ||
+      typeof authorityModule.getPersistedCorporationAuthority !== "function" ||
+      authorityModule[NPC_ISSUER_AUTHORITY_HOOKED]
+    ) {
+      return;
+    }
+
+    const originalGetAuthority = authorityModule.getPersistedCorporationAuthority;
+    authorityModule.getPersistedCorporationAuthority = function getNpcCourierIssuerAuthority(session) {
+      if (session && session.npcCourierContractsIssuer === true) {
+        const characterID = getSessionCharacterID(session);
+        const corporationID = positive(session.corporationID || session.corpid, 0);
+        const corporation = dependencies.corporationState.getCorporationRecord(corporationID);
+        const npcCharacter = dependencies.corporationState.getNpcCharacterRecord(characterID);
+        const agent = dependencies.agentAuthority.getAgentByID(characterID);
+        if (
+          characterID > 0 &&
+          corporationID > 0 &&
+          corporation &&
+          corporation.deleted !== true &&
+          corporation.isNPC === true &&
+          dependencies.corporationState.isNpcCorporationID(corporationID) &&
+          npcCharacter &&
+          positive(npcCharacter.corporationID, 0) === corporationID &&
+          agent &&
+          positive(agent.corporationID, 0) === corporationID
+        ) {
+          return {
+            characterID,
+            corporationID,
+            corporation,
+            member: {characterID, corporationID},
+            sessionCorporationRoles: 0x7fffffffffffffffn,
+            isCEO: false,
+            isDirector: true,
+          };
+        }
+      }
+      return originalGetAuthority.call(this, session);
+    };
+    Object.defineProperty(authorityModule, NPC_ISSUER_AUTHORITY_HOOKED, {value: true});
   }
 
   _resolveIssuer(dependencies) {
@@ -791,10 +1107,9 @@ class NpcCourierContractsService extends BaseService {
         charid: characterID,
         corporationID,
         corpid: corporationID,
+        npcCourierContractsIssuer: true,
         allianceID: 0,
         corpAccountKey: this._config.issuer.walletAccountKey,
-        corprole: CORP_ROLE_CONTRACT_MANAGER.toString(),
-        rolesAtAll: CORP_ROLE_CONTRACT_MANAGER.toString(),
         characterName: character.ownerName,
         systemContractCleanup: true,
       },
@@ -1286,6 +1601,15 @@ class NpcCourierContractsService extends BaseService {
         continue;
       }
       await this._observeContract(record, entry, nowMs, dependencies);
+      if (Number(record.status) === STATUS_IN_PROGRESS && !entry.manifestHandedOff) {
+        try {
+          await this._deliverAcceptedManifest(record, entry, dependencies);
+        } catch (error) {
+          log.warn(
+            `[${MOD_ID}] manifest handoff pending contract=${record.contractID}: ${error.message}`,
+          );
+        }
+      }
       changed = true;
       this._state.contracts[jobKey] = entry;
     }
@@ -1297,6 +1621,15 @@ class NpcCourierContractsService extends BaseService {
         const entry = buildStateEntryFromRecord(record, "contract:");
         this._state.contracts[entry.jobKey] = entry;
         await this._observeContract(record, entry, nowMs, dependencies);
+        if (Number(record.status) === STATUS_IN_PROGRESS && !entry.manifestHandedOff) {
+          try {
+            await this._deliverAcceptedManifest(record, entry, dependencies);
+          } catch (error) {
+            log.warn(
+              `[${MOD_ID}] manifest handoff pending contract=${record.contractID}: ${error.message}`,
+            );
+          }
+        }
         changed = true;
       }
     }
@@ -1328,7 +1661,7 @@ class NpcCourierContractsService extends BaseService {
         {syncInventory: false, notify: false},
       );
     } catch (error) {
-      result = {success: false, errorMsg: error.message};
+      result = {success: false, errorMsg: contractCreationErrorMessage(error)};
     }
     const contractID = result && Array.isArray(result.contractIDs)
       ? positive(result.contractIDs[0], 0)
@@ -1338,7 +1671,13 @@ class NpcCourierContractsService extends BaseService {
       entry.lastEvent = "contract-create-failed";
       entry.updatedAtMs = Date.now();
       this._stateStore.save(this._state);
-      log.warn(`[${MOD_ID}] contract creation failed job=${entry.jobKey} error=${result && result.errorMsg || "unknown"}`);
+      const errorMessage = String(result && result.errorMsg || "unknown");
+      if (/ConNotContractManager|configured NPC courier issuer is invalid/iu.test(errorMessage)) {
+        this._contractGenerationBlockedReason =
+          "NPC corporate courier creation was rejected by EveJS authorization; generation paused to prevent repeated failed cargo grants.";
+        this._lastError = this._contractGenerationBlockedReason;
+      }
+      log.warn(`[${MOD_ID}] contract creation failed job=${entry.jobKey} error=${errorMessage}`);
       return null;
     }
 
@@ -1471,6 +1810,9 @@ class NpcCourierContractsService extends BaseService {
       info.collateral = entry.collateral;
       info.itemList = cargoItems.map((cargo) => [cargo.itemID, cargo.quantity]);
       await this._submitContract(entry, info, dependencies, nowMs);
+      if (this._contractGenerationBlockedReason) {
+        return;
+      }
     }
   }
 
@@ -1876,6 +2218,9 @@ class NpcCourierContractsService extends BaseService {
       ) {
         const created = await this._createOne(origin, activeTotal, dependencies, nowMs);
         if (!created) {
+          if (this._contractGenerationBlockedReason) {
+            return;
+          }
           break;
         }
         const createdEntries = Array.isArray(created.entries) ? created.entries : [];
@@ -1906,6 +2251,10 @@ class NpcCourierContractsService extends BaseService {
     this._tickInProgress = true;
     const dependencies = this._getDependencies();
     try {
+      if (this._contractGenerationBlockedReason) {
+        this._lastError = this._contractGenerationBlockedReason;
+        return this.getStatus();
+      }
       if (!this._resolveNetwork(dependencies)) {
         this._lastError = "issuer or station network is unavailable";
         return this.getStatus();
@@ -1921,10 +2270,14 @@ class NpcCourierContractsService extends BaseService {
       }
       this._promoteStations();
       await this._retryRecoveryEntries(dependencies, nowMs);
+      if (this._contractGenerationBlockedReason) {
+        this._lastError = this._contractGenerationBlockedReason;
+        return this.getStatus();
+      }
       await this._fillContracts(dependencies, nowMs);
       this._state.lastTickAtMs = nowMs;
       this._stateStore.save(this._state);
-      this._lastError = "";
+      this._lastError = this._contractGenerationBlockedReason;
     } catch (error) {
       this._lastError = String(error && error.message || error || "unknown error");
       log.warn(`[${MOD_ID}] tick failed: ${this._lastError}`);

@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {normalizeProgressionState} = require(path.join(__dirname, "haulerProgression"));
 
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -68,6 +68,7 @@ function normalizeContract(raw = {}) {
     quantity: positive(raw.quantity, 0),
     itemID: positive(raw.itemID, 0),
     items,
+    manifestHandedOff: raw.manifestHandedOff === true,
     reward: Math.max(0, Number(raw.reward) || 0),
     collateral: Math.max(0, Number(raw.collateral) || 0),
     jumps: Math.max(0, Math.trunc(Number(raw.jumps) || 0)),

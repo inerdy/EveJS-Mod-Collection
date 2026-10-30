@@ -8,7 +8,7 @@ const test = require("node:test");
 
 test("loader validates and activates against the workspace EveJS checkout", (t) => {
   const inferredRoot = path.resolve(__dirname, "..", "..", "..");
-  const bundledRoot = path.join(inferredRoot, "EveJS-v0.12.9");
+  const bundledRoot = path.join(inferredRoot, "EveJS-261028.1");
   const evejsRoot = fs.existsSync(path.join(bundledRoot, "server"))
     ? bundledRoot
     : inferredRoot;
@@ -17,7 +17,7 @@ test("loader validates and activates against the workspace EveJS checkout", (t) 
   const loader = require("../loader");
   assert.equal(loader.id, "npcminingwing");
   assert.equal(loader.active, true);
-  assert.equal(loader.version, "0.12.13");
+  assert.equal(loader.version, "0.12.19");
 
   let ServiceManager;
   try {

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "id": "apparelcosmetics",
+  "displayName": "Apparel Cosmetics Entitlements",
+  "version": "0.1.0",
+  "description": "Adds server-side purchase activation and ownership enforcement for wearable character cosmetics.",
+  "kind": "loader",
+  "supportedBackends": ["native"],
+  "activation": {"strategy": "loader_rename"},
+  "restart": "game_server",
+  "compatibility": {"evejsVersions": ["261028.1"]}
+}

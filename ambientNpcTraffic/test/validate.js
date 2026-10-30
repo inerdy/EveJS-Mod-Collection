@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const modRoot = path.resolve(__dirname, "..");
-process.env.EVEJS_ROOT = process.env.EVEJS_ROOT || path.resolve(modRoot, "..", "..", "EveJS-v0.12.9");
+process.env.EVEJS_ROOT = process.env.EVEJS_ROOT || path.resolve(modRoot, "..", "..", "EveJS-261028.1");
 const manifest = JSON.parse(
   fs.readFileSync(path.join(modRoot, "evejs-launcher.mod.json"), "utf8"),
 );
@@ -63,7 +63,7 @@ assert.equal(manifest.version, "0.1.1");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261028.1"]);
 
 const normalizedConfig = normalizeConfig(config);
 assert.equal(normalizedConfig.enabled, true);

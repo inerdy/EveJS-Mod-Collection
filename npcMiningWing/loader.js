@@ -9,7 +9,7 @@ const MOD_ID = "npcminingwing";
 const MOD_VERSION = require("./evejs-launcher.mod.json").version;
 const SERVICE_MANAGER_SUFFIX = `${path.sep}server${path.sep}src${path.sep}services${path.sep}serviceManager.js`;
 const INSTALLED = Symbol.for("evejs.npcMiningWing.loaderInstalled");
-const REQUIRED_EVEJS_VERSION = "261018.1";
+const REQUIRED_EVEJS_VERSION = "261028.1";
 
 function evejsPath(...segments) {
   return hostPath("server", ...segments);

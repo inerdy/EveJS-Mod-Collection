@@ -8,6 +8,6 @@
   "supportedBackends": ["native"],
   "activation": {"strategy": "loader_rename"},
   "restart": "game_server",
-  "compatibility": {"evejsVersions": ["261018.1"]},
+  "compatibility": {"evejsVersions": ["261028.1"]},
   "clientMenu": {"apiVersion": 1, "entrypoint": "client/menu.py"}
 }

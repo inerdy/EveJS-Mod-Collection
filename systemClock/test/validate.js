@@ -18,7 +18,7 @@ assert.strictEqual(manifest.version, "0.3.0");
 assert.deepStrictEqual(manifest.supportedBackends, ["native"]);
 assert.strictEqual(manifest.activation.strategy, "loader_rename");
 assert.strictEqual(manifest.restart, "game_server");
-assert.deepStrictEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
+assert.deepStrictEqual(manifest.compatibility.evejsVersions, ["261028.1"]);
 assert.deepStrictEqual(manifest.clientMenu, {
   apiVersion: 1,
   entrypoint: "client/menu.py",

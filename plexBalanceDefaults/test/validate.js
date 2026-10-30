@@ -18,7 +18,7 @@ assert.equal(manifest.version, "0.1.0");
 assert.deepEqual(manifest.supportedBackends, ["native"]);
 assert.equal(manifest.activation.strategy, "loader_rename");
 assert.equal(manifest.restart, "game_server");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261028.1"]);
 
 const loader = require("../loader");
 

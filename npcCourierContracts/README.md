@@ -1,10 +1,24 @@
 # NPC Courier Contracts
 
-[![EveJS 261018.1](https://img.shields.io/badge/EveJS-261018.1-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
+[![EveJS 261028.1](https://img.shields.io/badge/EveJS-261028.1-2f6f9f)](https://github.com/V0nCleef/evejs-launcher/releases/tag/v1.0.69)
 [![Native only](https://img.shields.io/badge/backend-native--only-6f42c1)](#requirements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 NPC Courier Contracts is a native-only EveJS mod that creates public courier contracts from major trade hubs and gradually promotes active NPC stations into additional contract origins.
+
+Version `0.7.2` fixes NPC corporate contract publishing with EveJS `261028.1`.
+The mod validates its configured NPC agent and uses a mod-local authority
+bridge for its internal NPC issuer sessions. Player contract authorization and
+EveJS source files are unchanged.
+
+Version `0.7.0` hands the actual manifest items to the accepting hauler's
+station hangar. Players move those real items through their ship cargo, so
+native inventory volume and cargo-capacity rules apply to the goods themselves.
+At delivery, the mod stages the listed items back into contract escrow only
+when the full manifest is present at the destination; EveJS then completes the
+contract after the native courier package marker reaches the destination, and
+settles its reward and collateral normally. If a courier contract fails, native
+collateral settlement remains in effect.
 
 Version `0.6.7` adds freighter-scale courier offers carrying multiple packaged
 frigates, cruisers, and mining barges. About one third of generated routes use
@@ -51,7 +65,7 @@ courier remains, the mod leaves the current route unchanged.
 
 ## Requirements
 
-- EveJS 261018.1
+- EveJS 261028.1
 - Native backend
 - A game-server restart after enabling, disabling, or updating the mod
 - A funded NPC issuer corporation cash division
@@ -82,7 +96,7 @@ Initial origins are:
 - Rens VI - Moon 8 - Brutor Tribe Treasury (`60004588`)
 - Hek VIII - Moon 12 - Boundless Creation Factory (`60005686`)
 
-Contracts contain multiple real NPC-owned cargo stacks. Acceptance moves the package and its contents into the hauler's ship cargo hold, so cargo capacity, ship loss, wreck recovery, delivery, collateral, expiration, and failure all matter. Mineral contracts continue to use ordinary commodities with type IDs 34 through 38 and preview their commodity manifests in the offer title. Ship freight contracts carry mixed stacks of packaged frigates, cruisers, and mining barges selected from EveJS's published ship data. Their titles preview hull names and quantities in the offer list; the full description lists each cargo row and total volume. A courier offer is carried as one sealed plastic wrap containing those rows.
+Contracts escrow multiple real NPC-owned cargo stacks. On acceptance, EveJS transfers one Plastic Wrap marker to the hauler's station hangar and the mod transfers the actual manifest stacks there as well. Players load and haul those goods under native inventory capacity rules. Completion requires the complete manifest to be at the destination station, then the mod stages the goods into contract escrow for EveJS's normal delivery, reward, and collateral settlement. On failure, native collateral is paid to the issuer. Mineral contracts use ordinary commodities with type IDs 34 through 38 and preview their commodity manifests in the offer title. Ship freight contracts carry mixed stacks of packaged frigates, cruisers, and mining barges selected from EveJS's published ship data. Their titles preview hull names and quantities in the offer list; the full description lists each cargo row and total volume.
 
 Rewards increase with shortest stargate jump distance, cargo volume, and route security risk. The default jump component is 450,000 ISK per jump. By default, 35% of generated contracts prefer a destination within 5 jumps when one is available; the configured collateral is based on the cargo's reference value.
 

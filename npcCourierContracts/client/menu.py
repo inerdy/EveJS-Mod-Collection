@@ -361,7 +361,7 @@ class HaulerProgressWindow(Window):
             _color(
                 _COLOR_MUTED,
                 'Automatic routing replaces the current destination with the nearest personal NPC courier drop-off system. ' +
-                'Automatic completion only succeeds when the intact contract package is in your ship at the exact station.',
+                'Completion requires the full manifest and courier package marker at the destination; the real cargo items travel with you.',
             ),
             padding=(10, 8, 10, 8),
         )

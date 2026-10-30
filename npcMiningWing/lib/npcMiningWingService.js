@@ -2297,6 +2297,11 @@ class NpcMiningWingService extends BaseService {
         );
         continue;
       }
+      this._recoverMarkedWingDrones(
+        characterID,
+        [shipID],
+        "gate-follow",
+      );
       moved += 1;
       if (destinationScene) {
         const entity = this._ensureDeployedEntity(
@@ -2530,7 +2535,7 @@ class NpcMiningWingService extends BaseService {
             dockResult,
             "follow-dock",
           );
-          this._finishRecalledShip(character, shipID);
+          this._finishRecalledShip(character, shipID, characterID);
           changed = true;
           log.info(
             `[NPCMiningWing] char=${characterID} follow-dock ship=${shipID} ` +
@@ -2720,6 +2725,7 @@ class NpcMiningWingService extends BaseService {
     const warpDestination = leaderWarpDestination || leader.position;
     const warpKey = `launch:${positive(characterID)}:${positive(shipID)}`;
     const warpSignature = `${positive(systemID)}:${pointSignature(warpDestination)}`;
+    let warpFailure = "";
     if (shouldWarp) {
       if (
         this._warpTargets.get(warpKey) === warpSignature ||
@@ -2738,17 +2744,26 @@ class NpcMiningWingService extends BaseService {
           stopDistance: Math.max(0, finite(leaderWarp && leaderWarp.stopDistance, 0)),
           broadcastWarpStartToVisibleSessions: true,
           acquireForRelevantSessions: true,
+          onRefusedWhenApplied: (result) => this._handleWingWarpRefused(
+            characterID,
+            shipID,
+            systemID,
+            warpKey,
+            warpSignature,
+            result,
+          ),
         },
       );
       if (warpResult && warpResult.success === true) {
         this._warpTargets.set(warpKey, warpSignature);
         return true;
       }
+      warpFailure = String(warpResult && warpResult.errorMsg || "WARP_FAILED");
       if (leader.mode === "WARP") {
         throw new Error(
           "NPC_WING_LAUNCH_FAILED:%s".replace(
             "%s",
-            String(warpResult && warpResult.errorMsg || "WARP_FAILED"),
+            warpFailure,
           ),
         );
       }
@@ -2764,7 +2779,12 @@ class NpcMiningWingService extends BaseService {
     if (followResult === true) {
       return true;
     }
-    throw new Error("NPC_WING_LAUNCH_FAILED:FOLLOW_FAILED");
+    throw new Error(
+      `NPC_WING_LAUNCH_FAILED:FOLLOW_FAILED distance=${Math.round(distanceToLeader)} ` +
+        `shipBubble=${positive(entity.bubbleID)} leaderBubble=${positive(leader.bubbleID)} ` +
+        `leaderMode=${String(leader.mode || "UNKNOWN")}` +
+        (warpFailure ? ` warp=${warpFailure}` : ""),
+    );
   }
 
   _cancelSessionlessWingMovement(
@@ -2816,8 +2836,14 @@ class NpcMiningWingService extends BaseService {
         continue;
       }
       const launchSystemID = positive(transit && transit.systemID) || systemID;
-      if (!isShipInSystem(ship, systemID) || launchSystemID !== positive(systemID)) {
+      if (!isShipInSystem(ship, systemID)) {
         continue;
+      }
+      if (launchSystemID !== positive(systemID)) {
+        // A Follow catch-up can carry a queued ship through gates. Rebind its
+        // local movement retry to the system it has now reached.
+        transit.systemID = positive(systemID);
+        stateChanged = true;
       }
 
       let entity = scene.getEntityByID(shipID);
@@ -2906,7 +2932,15 @@ class NpcMiningWingService extends BaseService {
     return materialized;
   }
 
-  _finishRecalledShip(character, shipID) {
+  _finishRecalledShip(character, shipID, characterID = 0) {
+    if (positive(characterID)) {
+      this._recoverMarkedWingDrones(
+        characterID,
+        [shipID],
+        "recall-complete",
+        true,
+      );
+    }
     const deployedShipIDs = this._deployedShipIDs(character)
       .filter((candidate) => candidate !== shipID);
     character.deployedShipIDs = deployedShipIDs;
@@ -2949,7 +2983,7 @@ class NpcMiningWingService extends BaseService {
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       const stationID = positive(character.recallStationIDs[String(shipID)]);
       if (!ship || Number(ship.flagID) === itemStore.ITEM_FLAGS.HANGAR) {
-        this._finishRecalledShip(character, shipID);
+        this._finishRecalledShip(character, shipID, characterID);
         stateChanged = true;
         continue;
       }
@@ -2999,7 +3033,7 @@ class NpcMiningWingService extends BaseService {
             dockResult,
             "remote-arrival",
           );
-          this._finishRecalledShip(character, shipID);
+          this._finishRecalledShip(character, shipID, characterID);
           stateChanged = true;
           log.info(
             `[NPCMiningWing] char=${characterID} recalled ship=${shipID} ` +
@@ -3052,6 +3086,11 @@ class NpcMiningWingService extends BaseService {
         continue;
       }
 
+      this._recoverMarkedWingDrones(
+        characterID,
+        [shipID],
+        "gate-follow",
+      );
       transit.currentSystemID = nextSystemID;
       transit.nextSystemID = 0;
       transit.readyAtMs = now + GATE_TRANSIT_MS;
@@ -3168,7 +3207,7 @@ class NpcMiningWingService extends BaseService {
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       const key = String(shipID);
       if (!ship || Number(ship.flagID) === itemStore.ITEM_FLAGS.HANGAR) {
-        this._finishRecalledShip(character, shipID);
+        this._finishRecalledShip(character, shipID, characterID);
         stateChanged = true;
         continue;
       }
@@ -3317,7 +3356,7 @@ class NpcMiningWingService extends BaseService {
           `ship=${shipID} station=${stationID}`,
       );
     }
-    this._finishRecalledShip(character, shipID);
+    this._finishRecalledShip(character, shipID, characterID);
     log.info(
       `[NPCMiningWing] char=${characterID} recalled ship=${shipID} ` +
         `station=${stationID}`,
@@ -3334,14 +3373,53 @@ class NpcMiningWingService extends BaseService {
     }
   }
 
+  _handleWingWarpRefused(
+    characterID,
+    shipID,
+    systemID,
+    warpKey,
+    warpSignature,
+    result,
+  ) {
+    if (this._warpTargets.get(warpKey) === warpSignature) {
+      this._warpTargets.delete(warpKey);
+    }
+    const state = this._getState();
+    const character = characterState(state, characterID);
+    if (character.command === "follow" && character.recalling !== true) {
+      const key = String(positive(shipID));
+      const pending = character.launchTransit[key];
+      if (!pending || positive(pending.systemID) !== positive(systemID)) {
+        character.launchTransit[key] = {systemID: positive(systemID)};
+        character.revision = positive(character.revision) + 1;
+        writeState(state);
+      }
+    }
+    log.warn(
+      `[NPCMiningWing] char=${characterID} queued warp refused ` +
+        `ship=${shipID} system=${systemID} ` +
+        `error=${String(result && result.errorMsg || "UNKNOWN")}`,
+    );
+  }
+
   _resumeDynamicFollower(runtime, scene, characterID, character, systemID, leader) {
     const leaderID = positive(leader && leader.itemID);
     if (!leaderID) {
       return;
     }
+    const launchTransit = character.launchTransit &&
+      typeof character.launchTransit === "object" &&
+      !Array.isArray(character.launchTransit)
+      ? character.launchTransit
+      : (character.launchTransit = {});
+    let stateChanged = false;
     for (const shipID of this._deployedShipIDs(character)) {
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       if (!ship || !isShipInSystem(ship, systemID)) {
+        continue;
+      }
+      const key = String(shipID);
+      if (launchTransit[key]) {
         continue;
       }
       let entity = scene.getEntityByID(shipID);
@@ -3359,10 +3437,34 @@ class NpcMiningWingService extends BaseService {
       if (entity.pendingWarp || entity.warpState || entity.mode === "WARP") {
         continue;
       }
-      if (
+      const distanceToLeader = distanceBetween(entity.position, leader.position);
+      const alreadyFollowing =
         entity.mode === "FOLLOW" &&
-        positive(entity.targetEntityID) === leaderID
-      ) {
+        positive(entity.targetEntityID) === leaderID;
+      if (distanceToLeader > FOLLOW_RANGE_METERS * 4) {
+        launchTransit[key] = {systemID};
+        stateChanged = true;
+        try {
+          this._issueLaunchMovement(
+            runtime,
+            scene,
+            leader,
+            characterID,
+            shipID,
+            systemID,
+          );
+        } catch (error) {
+          log.warn(
+            `[NPCMiningWing] char=${characterID} follow catch-up pending ` +
+              `ship=${shipID} distance=${Math.round(distanceToLeader)} ` +
+              `shipBubble=${positive(entity.bubbleID)} ` +
+              `leaderBubble=${positive(leader.bubbleID)} ` +
+              `error=${error.message}`,
+          );
+        }
+        continue;
+      }
+      if (alreadyFollowing) {
         continue;
       }
       const result = runtime.followDynamicEntity(
@@ -3373,11 +3475,21 @@ class NpcMiningWingService extends BaseService {
         {broadcast: true},
       );
       if (result !== true) {
+        launchTransit[key] = {systemID};
+        stateChanged = true;
         log.warn(
           `[NPCMiningWing] char=${characterID} follow resume failed ` +
-            `ship=${shipID}`,
+            `ship=${shipID} distance=${Math.round(distanceToLeader)} ` +
+            `shipBubble=${positive(entity.bubbleID)} ` +
+            `leaderBubble=${positive(leader.bubbleID)} ` +
+            `shipMode=${String(entity.mode || "UNKNOWN")} ` +
+            `leaderMode=${String(leader.mode || "UNKNOWN")}`,
         );
       }
+    }
+    if (stateChanged) {
+      character.revision = positive(character.revision) + 1;
+      writeState(this._getState());
     }
   }
 
@@ -3434,8 +3546,39 @@ class NpcMiningWingService extends BaseService {
       if (this._warpTargets.get(warpKey) === targetSignature) {
         continue;
       }
+      const droneRecovery = this._recoverMarkedWingDrones(
+        characterID,
+        [shipID],
+        "leader-warp",
+      );
+      if (
+        droneRecovery.failed > 0 ||
+        !this._prepareWingShipForDock(session, characterID, ship, scene)
+      ) {
+        continue;
+      }
       if (entity.pendingWarp || entity.warpState || entity.mode === "WARP") {
-        this._warpTargets.set(warpKey, targetSignature);
+        const activeWarp = entity.pendingWarp || entity.warpState;
+        const activeDestination = activeWarp && (
+          activeWarp.rawDestination || activeWarp.targetPoint
+        );
+        const activeTargetID = positive(
+          entity.targetEntityID ||
+            activeWarp && activeWarp.targetEntityID,
+        );
+        const destinationMatches = Boolean(
+          activeWarp && activeDestination &&
+            pointsNear(activeDestination, destination, 10000),
+        ) || Boolean(
+          activeTargetID &&
+            positive(warpState.targetEntityID) &&
+            activeTargetID === positive(warpState.targetEntityID),
+        );
+        if (destinationMatches) {
+          this._warpTargets.set(warpKey, targetSignature);
+        } else {
+          this._warpTargets.delete(warpKey);
+        }
         continue;
       }
       if (
@@ -3454,6 +3597,14 @@ class NpcMiningWingService extends BaseService {
           stopDistance: Math.max(0, finite(warpState.stopDistance, 0)),
           broadcastWarpStartToVisibleSessions: true,
           acquireForRelevantSessions: true,
+          onRefusedWhenApplied: (result) => this._handleWingWarpRefused(
+            characterID,
+            shipID,
+            systemID,
+            warpKey,
+            targetSignature,
+            result,
+          ),
         },
       );
       if (result && result.success === true) {
@@ -3481,7 +3632,7 @@ class NpcMiningWingService extends BaseService {
       const stationID = positive(targetStationIDs[String(shipID)]);
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       if (!ship || Number(ship.flagID) === itemStore.ITEM_FLAGS.HANGAR) {
-        this._finishRecalledShip(character, shipID);
+        this._finishRecalledShip(character, shipID, characterID);
         stateChanged = true;
         continue;
       }
@@ -3656,7 +3807,7 @@ class NpcMiningWingService extends BaseService {
       ));
   }
 
-  _recoverWingDroneItem(characterID, ship, item) {
+  _recoverWingDroneItem(characterID, ship, item, reason = "wing-recovery") {
     const numericCharacterID = positive(characterID);
     const shipID = positive(ship && ship.itemID);
     const droneID = positive(item && item.itemID);
@@ -3703,12 +3854,107 @@ class NpcMiningWingService extends BaseService {
       },
     });
     if (result && result.success === true) {
+      try {
+        const runtime = getSpaceRuntime();
+        const sourceScene = this._findSceneForSystem(runtime, systemID);
+        const droneEntity = sourceScene && sourceScene.getEntityByID(droneID);
+        if (droneEntity && droneEntity.kind === "drone") {
+          const removeResult = sourceScene.removeDynamicEntity(droneID, {
+            broadcast: true,
+            persistSpaceState: false,
+          });
+          if (!removeResult || removeResult.success !== true) {
+            log.warn(
+              `[NPCMiningWing] char=${numericCharacterID} recovered drone ` +
+                `scene cleanup pending drone=${droneID} ship=${shipID}`,
+            );
+          }
+        }
+      } catch (error) {
+        log.warn(
+          `[NPCMiningWing] char=${numericCharacterID} recovered drone ` +
+            `scene cleanup failed drone=${droneID} ship=${shipID}: ${error.message}`,
+        );
+      }
       log.info(
         `[NPCMiningWing] char=${numericCharacterID} recovered drone=${droneID} ` +
-          `to ship=${shipID} after wing reload`,
+          `to ship=${shipID} reason=${String(reason || "wing-recovery")}`,
       );
     }
     return result;
+  }
+
+  _recoverMarkedWingDrones(
+    characterID,
+    shipIDs,
+    reason = "wing-transition",
+    dockedOnly = false,
+  ) {
+    const numericCharacterID = positive(characterID);
+    const allowedShipIDs = new Set(
+      (Array.isArray(shipIDs) ? shipIDs : [shipIDs]).map(positive).filter(Boolean),
+    );
+    if (!numericCharacterID || allowedShipIDs.size <= 0) {
+      return {recovered: 0, failed: 0};
+    }
+
+    let candidates;
+    try {
+      const allItems = itemStore.getAllItems();
+      const itemRows = Array.isArray(allItems)
+        ? allItems
+        : Object.values(allItems || {});
+      candidates = itemRows.filter((item) => (
+        Number(item && item.ownerID) === numericCharacterID &&
+        Number(item && item.categoryID) === DRONE_CATEGORY_ID &&
+        Number(item && item.flagID) === 0 &&
+        allowedShipIDs.has(wingDroneMarkerShipID(item))
+      ));
+    } catch (error) {
+      log.warn(
+        `[NPCMiningWing] char=${numericCharacterID} wing drone recovery scan failed: ` +
+          `${error.message}`,
+      );
+      return {recovered: 0, failed: 1};
+    }
+
+    let recovered = 0;
+    let failed = 0;
+    for (const item of candidates) {
+      const shipID = wingDroneMarkerShipID(item);
+      const ship = itemStore.findCharacterShipItem(numericCharacterID, shipID);
+      if (
+        !ship ||
+        (dockedOnly && Number(ship.flagID) !== itemStore.ITEM_FLAGS.HANGAR)
+      ) {
+        continue;
+      }
+      try {
+        const result = this._recoverWingDroneItem(
+          numericCharacterID,
+          ship,
+          item,
+          reason,
+        );
+        if (result && result.success === true) {
+          recovered += 1;
+        } else {
+          failed += 1;
+          log.warn(
+            `[NPCMiningWing] char=${numericCharacterID} drone recovery pending ` +
+              `drone=${positive(item && item.itemID)} ship=${shipID} ` +
+              `reason=${String(result && result.errorMsg || "UNKNOWN")}`,
+          );
+        }
+      } catch (error) {
+        failed += 1;
+        log.warn(
+          `[NPCMiningWing] char=${numericCharacterID} drone recovery failed ` +
+            `drone=${positive(item && item.itemID)} ship=${shipID}: ${error.message}`,
+        );
+      }
+    }
+    return {recovered, failed};
   }
 
   _recoverDockedWingDrones() {
@@ -3725,41 +3971,12 @@ class NpcMiningWingService extends BaseService {
       if (markedShipIDs.size <= 0) {
         continue;
       }
-      let candidates;
-      try {
-        const allItems = itemStore.getAllItems();
-        const itemRows = Array.isArray(allItems)
-          ? allItems
-          : Object.values(allItems || {});
-        candidates = itemRows.filter((item) => (
-          Number(item && item.ownerID) === numericCharacterID &&
-          Number(item && item.categoryID) === DRONE_CATEGORY_ID &&
-          Number(item && item.flagID) === 0 &&
-          wingDroneMarkerShipID(item) > 0 &&
-          markedShipIDs.has(wingDroneMarkerShipID(item))
-        ));
-      } catch (error) {
-        log.warn(
-          `[NPCMiningWing] char=${numericCharacterID} wing drone recovery scan failed: ` +
-            `${error.message}`,
-        );
-        continue;
-      }
-      for (const item of candidates) {
-        const shipID = wingDroneMarkerShipID(item);
-        const ship = itemStore.findCharacterShipItem(numericCharacterID, shipID);
-        if (!ship || Number(ship.flagID) !== itemStore.ITEM_FLAGS.HANGAR) {
-          continue;
-        }
-        try {
-          this._recoverWingDroneItem(numericCharacterID, ship, item);
-        } catch (error) {
-          log.warn(
-            `[NPCMiningWing] char=${numericCharacterID} drone recovery failed ` +
-              `drone=${positive(item && item.itemID)} ship=${shipID}: ${error.message}`,
-          );
-        }
-      }
+      this._recoverMarkedWingDrones(
+        numericCharacterID,
+        [...markedShipIDs],
+        "server-reload",
+        true,
+      );
     }
   }
 
@@ -3834,35 +4051,47 @@ class NpcMiningWingService extends BaseService {
     const entity = activeScene && activeScene.getEntityByID(shipID);
     if (activeScene && entity) {
       this._reattachWingDroneEntities(activeScene, characterID);
-      const drones = this._wingDroneEntities(activeScene, shipID);
-      if (drones.length > 0) {
-        this._returnWingDronesToBay(
-          session,
-          characterID,
-          entity,
-          ship,
-          null,
-          activeScene,
-        );
-        return false;
-      }
     }
 
+    // A ship transition is the point where its drones must be secured. Wing
+    // drones carry a persistent ship marker, so recover them directly into
+    // their owning bay instead of letting a delayed return order race the
+    // ship's warp, gate movement, or docking.
     const orphaned = this._wingDroneItemsForShip(characterID, shipID, systemID);
-    if (orphaned.length > 0) {
-      for (const item of orphaned) {
-        try {
-          this._recoverWingDroneItem(characterID, ship, item);
-        } catch (error) {
-          log.warn(
-            `[NPCMiningWing] char=${characterID} drone recovery pending ` +
-              `drone=${positive(item && item.itemID)} ship=${shipID}: ${error.message}`,
-          );
-        }
+    let recoveryFailed = false;
+    for (const item of orphaned) {
+      try {
+        const result = this._recoverWingDroneItem(
+          characterID,
+          ship,
+          item,
+          "ship-transition",
+        );
+        recoveryFailed = recoveryFailed || !(result && result.success === true);
+      } catch (error) {
+        recoveryFailed = true;
+        log.warn(
+          `[NPCMiningWing] char=${characterID} drone recovery pending ` +
+            `drone=${positive(item && item.itemID)} ship=${shipID}: ${error.message}`,
+        );
       }
-      return this._wingDroneItemsForShip(characterID, shipID, systemID).length === 0;
     }
-    return true;
+    const remainingDrones = activeScene
+      ? this._wingDroneEntities(activeScene, shipID)
+      : [];
+    if (remainingDrones.length > 0) {
+      this._returnWingDronesToBay(
+        session,
+        characterID,
+        entity,
+        ship,
+        null,
+        activeScene,
+      );
+    }
+    return !recoveryFailed &&
+      remainingDrones.length === 0 &&
+      this._wingDroneItemsForShip(characterID, shipID, systemID).length === 0;
   }
 
   _wingDroneTaskTargetID(drone) {
@@ -6402,6 +6631,9 @@ class NpcMiningWingService extends BaseService {
         delete character.miningShipStates[String(shipID)];
         continue;
       }
+      if (character.launchTransit && character.launchTransit[String(shipID)]) {
+        continue;
+      }
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       if (!ship || !isShipInSystem(ship, systemID)) {
         continue;
@@ -6518,24 +6750,35 @@ class NpcMiningWingService extends BaseService {
     metrics.lastTickAtMs = Date.now();
     this._reattachWingDroneEntities(scene, characterID);
     this._refreshDeployedSkillProfiles(scene, characterID, character);
-    const automationStateBefore = serializePersistentMiningStates(
-      character.miningShipStates,
-    );
-    this._tickWingDroneAutomation(
-      runtime,
-      scene,
-      session,
-      characterID,
-      character,
-      systemID,
-      leader,
+    // Recall, docking, and warp transitions own drone recovery. Defense
+    // automation must not relaunch drones while a transition is securing them.
+    const leaderWarping = Boolean(
+      leader.pendingWarp || leader.warpState || leader.mode === "WARP",
     );
     if (
-      automationStateBefore !==
-      serializePersistentMiningStates(character.miningShipStates)
+      character.dockingWithLeader !== true &&
+      character.recalling !== true &&
+      !leaderWarping
     ) {
-      character.revision = positive(character.revision) + 1;
-      writeState(state);
+      const automationStateBefore = serializePersistentMiningStates(
+        character.miningShipStates,
+      );
+      this._tickWingDroneAutomation(
+        runtime,
+        scene,
+        session,
+        characterID,
+        character,
+        systemID,
+        leader,
+      );
+      if (
+        automationStateBefore !==
+        serializePersistentMiningStates(character.miningShipStates)
+      ) {
+        character.revision = positive(character.revision) + 1;
+        writeState(state);
+      }
     }
     this._observeSessionMovement(
       runtime,
@@ -6750,7 +6993,7 @@ class NpcMiningWingService extends BaseService {
     for (const shipID of deployedShipIDs) {
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       if (!ship || Number(ship.flagID) === itemStore.ITEM_FLAGS.HANGAR) {
-        this._finishRecalledShip(character, shipID);
+        this._finishRecalledShip(character, shipID, characterID);
         continue;
       }
       const shipSystem = shipSystemID(ship);
@@ -6797,6 +7040,11 @@ class NpcMiningWingService extends BaseService {
     character.command = "return";
     character.revision = positive(character.revision) + 1;
     writeState(state);
+    this._recoverMarkedWingDrones(
+      characterID,
+      usableShipIDs,
+      "recall-command",
+    );
     this._ensureRuntimeTicker();
 
     const scene = inSpace ? runtime.getSceneForSession(session) : null;
@@ -6853,6 +7101,14 @@ class NpcMiningWingService extends BaseService {
       if (inSpace && shipSystem === currentSystem && scene) {
         try {
           this._ensureDeployedEntity(runtime, scene, currentSystem, shipID);
+          if (!this._prepareWingShipForDock(
+            session,
+            characterID,
+            ship,
+            scene,
+          )) {
+            continue;
+          }
           this._issueRecallMovement(
             runtime,
             scene,
@@ -6898,7 +7154,7 @@ class NpcMiningWingService extends BaseService {
           dockResult,
           "while-docked",
         );
-        this._finishRecalledShip(character, shipID);
+        this._finishRecalledShip(character, shipID, characterID);
         immediateChange = true;
         log.info(
           `[NPCMiningWing] char=${characterID} recalled ship=${shipID} ` +
@@ -7157,12 +7413,12 @@ class NpcMiningWingService extends BaseService {
     }
     const state = this._getState();
     const character = characterState(state, characterID);
-    return {
+    return JSON.stringify({
       roomName: String(record.roomName || ""),
       channelID: positive(character.wingChatChannelID || record.entityID),
       displayName: WING_CHAT_DISPLAY_NAME,
       joinLink: `joinChannel:${record.roomName}`,
-    };
+    });
   }
 
   Handle_ListOwnedEligibleShips(args, session) {
@@ -7834,9 +8090,13 @@ class NpcMiningWingService extends BaseService {
 
     let localShipCount = 0;
     const followTransit = {};
+    const launchTransit = command === "mine"
+      ? {...(character.launchTransit || {})}
+      : {};
     for (const shipID of deployedShipIDs) {
       const ship = itemStore.findCharacterShipItem(characterID, shipID);
       if (!ship || !isShipInSystem(ship, systemID)) {
+        delete launchTransit[String(shipID)];
         if (ship && command !== "mine") {
           const remoteSystemID = shipSystemID(ship);
           const remoteScene = remoteSystemID
@@ -7870,7 +8130,12 @@ class NpcMiningWingService extends BaseService {
         }
         continue;
       }
-      if (character.launchTransit[String(shipID)]) {
+      if (character.launchTransit[String(shipID)] && command === "follow") {
+        launchTransit[String(shipID)] = {systemID};
+      } else if (
+        character.launchTransit[String(shipID)] &&
+        command !== "mine"
+      ) {
         this._cancelSessionlessWingMovement(
           runtime,
           scene,
@@ -7912,20 +8177,31 @@ class NpcMiningWingService extends BaseService {
         continue;
       }
       const isCollectionShip = positive(character.collectionShipID) === shipID;
-      const result = command === "follow" || command === "mine" && isCollectionShip
-        ? runtime.followDynamicEntity(
-            scene.sceneDescriptor || systemID,
-            shipID,
-            positive(leader.itemID),
-            FOLLOW_RANGE_METERS,
-            {broadcast: true},
-          )
-        : runtime.stopDynamicEntity(
-            scene.sceneDescriptor || systemID,
-            shipID,
-            {broadcast: true},
-          );
-      if (result !== true) {
+      const launchPending = (command === "mine" || command === "follow") &&
+        Boolean(launchTransit[String(shipID)]);
+      const result = launchPending
+        ? true
+        : command === "follow" || command === "mine" && isCollectionShip
+          ? runtime.followDynamicEntity(
+              scene.sceneDescriptor || systemID,
+              shipID,
+              positive(leader.itemID),
+              FOLLOW_RANGE_METERS,
+              {broadcast: true},
+            )
+          : runtime.stopDynamicEntity(
+              scene.sceneDescriptor || systemID,
+              shipID,
+              {broadcast: true},
+            );
+      if (result !== true && (command === "mine" || command === "follow")) {
+        character.launchTransit[String(shipID)] = {systemID};
+        launchTransit[String(shipID)] = {systemID};
+        log.info(
+          `[NPCMiningWing] char=${characterID} ${command} order queued movement ` +
+            `ship=${shipID} system=${systemID}`,
+        );
+      } else if (result !== true) {
         throw new Error("NPC_WING_COMMAND_FAILED");
       }
       if (command === "mine") {
@@ -7946,7 +8222,9 @@ class NpcMiningWingService extends BaseService {
     character.recallStationIDs = {};
     character.recallTransit = {};
     character.followTransit = command === "follow" ? followTransit : {};
-    character.launchTransit = {};
+    character.launchTransit = command === "mine" || command === "follow"
+      ? launchTransit
+      : {};
     if (command !== "mine") {
       character.miningShipStates = {};
     }

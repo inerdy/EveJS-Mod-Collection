@@ -12,7 +12,7 @@ const {normalizeState} = require(path.join(modRoot, "lib", "state"));
 assert.equal(manifest.schemaVersion, 3);
 assert.equal(manifest.id, "shipwarpfuel");
 assert.equal(manifest.version, "0.2.2");
-assert.deepEqual(manifest.compatibility.evejsVersions, ["261018.1"]);
+assert.deepEqual(manifest.compatibility.evejsVersions, ["261028.1"]);
 assert.deepEqual(manifest.clientMenu, {apiVersion: 1, entrypoint: "client/menu.py"});
 
 // UI/package validation is portable; backend tests require an installed host.
